@@ -1,0 +1,15 @@
+- Major Compenents: Connor Barlow wrote a script to extract the most important features of our dataset:
+whether the image is black and white, aspect ratio, and the width and height. Dylan Thompson wrote a script to 
+to implement our data augmentation steps to make the model robust to variance.
+
+- Progress for upcoming major milestones: So, as we now have knowledge about our data and data augmentation 
+is nearly complete, we are well on our way. Moving forward, we are going to delegate who is in charge of developing our model, 
+incorporating data augmentation into custom dataset classes, and dataloaders for our model to use.
+
+- Who worked on what parts and to what extent: see part 1.
+
+- Impeding obstacles: Understanding how the prototypical network will apply to our situation and how that translates into pytorch
+code. We are also still working out how to modify the basic prototypical net training to use an SPP layer before the conv layers.
+From the SPP paper, fixed sized images are recommended due to conflicts with backpropogation (varying sized images make training difficult).
+We are also considering implementing a precise threshold (one we don't know yet) to determine when images are too noisy and not suited for 
+use in our model. 
