@@ -27,5 +27,5 @@ def applyRandomTransformations(iTensor):
         else: #resizes the array
             transformList.append(Resize(randint(iTensor.size/2, iTensor.size*2)))
             
-        return transforms.Compose(transformList) 
+    return transforms.Compose(transformList) 
 
