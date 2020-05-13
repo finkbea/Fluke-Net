@@ -99,7 +99,9 @@ def prepare_dictionaries (Samples, Layer_count, Filters_per_layer) :
 
         # relu ?
 
-        # set samples to activated rempas
+        # set samples to activated remaps
+
+        # Append generated filters to return list 
         Filters_output.append(Kernels)
         
     return Filters_output
