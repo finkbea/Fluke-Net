@@ -26,4 +26,6 @@ def applyRandomTransformations(iTensor):
             transformList.append(RandomCrop((randint(iTensor.size/4, iTensor.size), randint(iTensor.size/4, iTensor.size)), scale=(0.08, 1.0), ratio=(0.75, 1.3333333333333333), interpolation=2))
         else: #resizes the array
             transformList.append(Resize(randint(iTensor.size/2, iTensor.size*2)))
-    
+            
+        return transforms.Compose(transformList) 
+
