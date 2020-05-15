@@ -1,32 +1,45 @@
- 
+
 """
-@authors: Logan Pashby
+@authors: Logan Pashby, Dylan Thompson, Adicus Finkbeiner
 Source = https://stanford.edu/~shervine/blog/pytorch-how-to-generate-data-parallel
 Custom dataset class to feed to pytorch dataloader for train/dev picture files.
 """
 
 import torch
-from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms, utils
 import numpy as np
-import random
 import os
-from PIL import Image
-from skimage import io
 import csv
-import randomTransformation
+import random
+from PIL import Image
+from torchvision import transforms
 
-class FlukeDataset(Dataset):
-    def __init__(self, filepath):
+class FlukeDataset(torch.utils.data.Dataset):
+    def __init__(self, input_filepath, input_target_pairs_filepath, class_dict):
         'Initialization'
         self.inputs = []
         self.targets = []
-        self.filepath = filepath
-        with open("train_labels.csv", newline='') as labels:
+
+        self.input_filepath = input_filepath
+        with open(input_target_pairs_filepath, newline='') as labels:
             labels = csv.DictReader(labels)
             for row in labels:
+                # for now, just ignore the catchall "new_whale" class
+                if (row['Id'] == 'new_whale'):
+                    continue
+
+                if (not class_dict.hasClass(row['Id'])):
+                    class_dict.addClass(row['Id'])
+
                 self.inputs.append(row['Image'])
-                self.targets.append(row['Id'])
+
+                # set our target to an int instead of the human-readable filename string
+                # because torch.nn.CrossEntropyLoss needs an int to identify classes;
+                # this is functionally equivalent to a one-hot vector
+                self.targets.append(class_dict.getClassId(row['Id']))
+        
+        self.inputs = self.inputs
+        self.targets = self.targets
+
 
     def __len__(self):
         'Denotes the total number of samples'
@@ -34,33 +47,75 @@ class FlukeDataset(Dataset):
 
     def __getitem__(self, index):
         'Generates one sample of data'
-        
-        file = os.path.join(self.filepath, self.inputs[index])
-        x = applyRandomTransformations(torch.from_numpy(io.read(file)))
+        file = os.path.join(self.input_filepath, self.inputs[index])
+
+        # load the image and ensure that it has 3 channels (vs only 1 for grayscale)
+        image = Image.open(file).convert('RGB')
+        image = self.applyRandomTransformation(image)
+
+        x = transforms.functional.to_tensor(image)
+        if (torch.cuda.is_available()):
+            x = x.cuda()
+
         y = self.targets[index]
 
         return x, y
 
-    def applyRandomTransformations(self, iTensor):
-        rList = [1, 1, 1, 2, 2, 3] #number of transformations to be made
-        rChoice = random.choice(rList)
-        tList = [1, 2, 3, 4, 5, 6] #possible transformation possibilities
-        
-        transformList = []
-        
-        for x in range(rChoice):
-            tChoice = random.choice(tList) #picks a random transformation
-            if (tChoice == 1): #converts to greyscale
-                transformList.append(RandomGrayscale(p=random.uniform(0.2, 1)))
-            elif (tChoice == 2): #horizantal flip
-                transformList.append(RandomHorizontalFlip(p=1))
-            elif (tChoice == 3): #vertical flip
-                transformList.append(RandomVerticalFlip(p=1))
-            elif (tChoice == 4): #random rotation
-                transformList.append(RandomRotation((-359, 359), resample=False,expand=True, center=None))
-            elif (tChoice == 5): #shifts and wraps
-                transformList.append(RandomCrop((randint(iTensor.size/4, iTensor.size), randint(iTensor.size/4, iTensor.size)), scale=(0.08, 1.0), ratio=(0.75, 1.3333333333333333), interpolation=2))
-            else: #resizes the array
-                transformList.append(Resize(randint(iTensor.size/2, iTensor.size*2)))
-                
-        return transforms.Compose(transformList) 
+    def getUniqueTargets(self):
+        'Gets list of target classes in this dataset'
+        return np.unique(self.targets)
+
+    def applyRandomTransformation(self, image):
+        """
+        Applies a random combination of image transformations to a PIL image,
+        resizing to 100x100 at the end
+        """
+        transform_list = []
+
+        # no need for a loop here - we can get an equivalent range of outputs
+        # with only one call to each transformation
+        transform_list.append(transforms.RandomGrayscale(p=0.5))
+        transform_list.append(transforms.RandomHorizontalFlip(p=0.5))
+        transform_list.append(transforms.RandomRotation((-30, 30), resample=False, expand=True, center=None))
+
+        # disabling cropping for now because I keep getting randrange errors from inside transforms.RandomCrop;
+        # I must be using the wrong dimensions or something
+        # transform_list.append(transforms.RandomCrop((random.randint(image.size[1] // 4, image.size[1]), random.randint(image.size[0] // 4, image.size[0]))))
+
+        transform_list.append(transforms.Resize((100, 100)))
+        final_transform = transforms.Compose(transform_list)
+
+        return final_transform(image)
+
+    def numClasses(self):
+        return len(self.targets)
+
+"""
+Dictionary class to store mappings between human-readable class names
+and identifiers that we can feed into a NN. An instance of this class
+can be shared across multiple DataSets.
+"""
+class ClassDictionary():
+    def __init__(self):
+        'Initialization'
+        self.id_counter = 0
+        self.name_to_id = {}
+        self.id_to_name = {}
+
+    def addClass(self, name):
+        'Adds a new class to dictionary and assigns it a unique id'
+        self.name_to_id[name] = self.id_counter
+        self.id_to_name[self.id_counter] = name
+        self.id_counter += 1
+
+    def hasClass(self, name):
+        'Returns true if this class has already been assigned an id'
+        return name in self.name_to_id
+
+    def getClassName(self, class_id):
+        'Maps a unique class id to a human-readable class name'
+        return self.id_to_name[class_id]
+
+    def getClassId(self, name):
+        'Maps a human-readable class name to a unique class id'
+        return self.name_to_id[name]
