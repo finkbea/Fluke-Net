@@ -1,0 +1,7 @@
+- Major Compenents: Logan Pashby wrote a DataSet class to load our inputs and targets into a format useable by PyTorch. Adicus Finkbeiner added an applyRandomTransformation() function to dynamically augment our input data at load time. Dylan Thompson ported over the CNN lab code to use the new DataSet class and also ran experiments on the cluster to establish baselines. Caelan Booker has continued work on using dictionary networks to initialize our CNN layers with more optimal kernels.
+
+- Progress for upcoming major milestones: We have laid the technical foundation needed to implement a prototypical network, so should be able to complete that within the next few days. We plan on making it more configurable so we can conduct a hyperparameter sweep. After that, we hope to apply a self-supervision technique to the prototypical net to increase its accuracy.
+
+- Who worked on what parts and to what extent: see part 1.
+
+- Impeding obstacles: We are uncertain about how well the approach we are taking will scale to such a large number of classes. There is also a class imbalance in our data (1/3 of the datapoints fall into the catch-all "new whale" class, despite them being different whales) which we aren't yet sure how we should handle.
