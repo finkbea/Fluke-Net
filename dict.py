@@ -8,7 +8,10 @@ import sklearn.feature_extraction as skfe
 import cv2
 import torch
 
-
+#TODO
+"""
+Still need to add every variable used in this function as a parameter with a default value
+"""
 def prepare_dictionaries (Samples, Filters_per_layer) :
     """
     Prepare dictionary filters for the convolution layers of fluke_net.
