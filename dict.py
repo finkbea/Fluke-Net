@@ -23,7 +23,7 @@ def prepare_dictionaries (Samples, Filters_per_layer) :
     """
 
     if Samples.dtype is np.dtype('uint8') :
-        print("Not floats!")
+        # If the samples are still of byte type, convert them to floats
         Samples = Samples.astype('float64') / 255
     
     Layer_count = len(Filters_per_layer)
@@ -35,6 +35,19 @@ def prepare_dictionaries (Samples, Filters_per_layer) :
     
     for Layer in range(Layer_count) :
         # Extract patches from all the samples
+
+
+        #TODO
+        # =============================================================
+        """
+        Right now, at the start of the first run of this loop Samples is a
+        numpy array. But at the end, it is assigned a tensor. I really outta
+        just convert the samples to a tensor up front and then figure out
+        how to extract patches from a tensor, because it will be innefficient
+        to convert the tensors back to a numpy array just to extract patches
+        only to convert them back to tensors to convolve with, etc.
+        """
+        # =============================================================
         Patches = None
         for Image in Samples :
             tmp_patch_arr = skfe.image.extract_patches_2d(Image, (patch_height, patch_width))
@@ -70,6 +83,7 @@ def prepare_dictionaries (Samples, Filters_per_layer) :
                 Kernels = np.append(Kernels, Reshaped_atoms, axis=3)
 
         print(Kernels.shape)
+        
         # remap ?
         Feature_map = []
 
@@ -79,34 +93,15 @@ def prepare_dictionaries (Samples, Filters_per_layer) :
         print(Images_tensor.shape)
         Kernels_tensor = torch.from_numpy(Kernels)
         Kernels_tensor = Kernels_tensor.permute(0, 3, 1, 2)
+        print(Images_tensor.type())
+        print(Kernels_tensor.type())
         Convolve_out = torch.nn.functional.conv2d(Images_tensor, Kernels_tensor)
         print(Convolve_out.shape)
 
 
-        """
-        for Image in Samples :
-            # Convolve over the current Image with each kernel
-            Convoled_image = None
-            for Kernel in range(Kernels.shape[0]) :
-                # Convolve_out should be a 2 dimensional array
-                Image_tensor = torch.from_numpy(Image)
-                Kernel_tensor = torch.from_numpy(Kernels)
-                Image_tensor = Image_tensor.permute(2, 0, 1)
-                Image_tensor.unsqueeze_(0)
-                Kernel_tensor = Kernel_tensor.permute(0, 3, 1, 2)
-                print(Image_tensor.shape)
-                print(Image_tensor.type())
-                print(Kernel_tensor.shape)
-                print(Kernel_tensor.type())
-                Convolve_out = torch.nn.functional.conv2d(Image_tensor, Kernel_tensor)
-                print(Convolve_out.shape)
-                #Convolved_image = sc.ndimage.filters.convolve(Image, Kernels[0,:,:,:])
-                #Feature_map.append(Convolved_image)
-        """
-
-        # relu ?
-
-        # set samples to activated remaps
+        # Normalize according to activation function (ReLU), and set to Samples
+        # for next iteration
+        Samples = torch.nn.functional.relu(Convolve_out)
 
         # Append generated filters to return list 
         Filters_output.append(Kernels)
