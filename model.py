@@ -21,13 +21,17 @@ import numpy as np
 from dataset import FlukeDataset, ClassDictionary
 
 class ConvNeuralNet(torch.nn.Module):
-    def __init__(self, C, f1):
+    def __init__(self, C, f1, Filter_specs=None, Pre_trained_filters=None):
         super(ConvNeuralNet, self).__init__()
 
         self.F = getattr(torch, f1)
 
+        # conv1 specs
+        # in_channels = 3, out_channels = 32, kernel_size = 5
         self.conv1 = torch.nn.Conv2d(3, 32, 5) # 100 -> 96
         self.maxpool1 = torch.nn.MaxPool2d(2, 2) # 96 -> 48
+        # conv2 specs
+        # in_channels = 32, out_channels = 64, kernel_size = 3
         self.conv2 = torch.nn.Conv2d(32, 64, 3) # 48 -> 45
         self.maxpool2 = torch.nn.MaxPool2d(4, 4) # 45 -> 11
 
@@ -36,7 +40,17 @@ class ConvNeuralNet(torch.nn.Module):
         self.dense_hidden = torch.nn.Linear(11*11*64, 512)
 
         self.output = torch.nn.Linear(512, C)
+
+
         
+        if not Pre_trained_filters is None :
+            # If we have pre-trained filters, set our weights to them.
+            dummy_op = 0
+            conv1.weight = Pre_trained_filters[0]
+            conv2.weight = Pre_trained_filters[1]
+
+
+            
         for name, param in self.named_parameters():
             print(name,param.data.shape)
 
@@ -146,10 +160,26 @@ def main(argv):
     dev_loader = torch.utils.data.DataLoader(dev_set, shuffle=True,
             drop_last=False, batch_size=args.mb, num_workers=8)
 
+
+    # Generate pre-trained filters using dictionary learning
+    Pre_trained_filters = None
+    Filter_specs = None
+
+    if False :
+        Filter_specs = [[32,5,5],[64,3,3]]
+        Samples = None
+        Dict_alpha = 2
+        Dict_epochs = 10
+        Dict_minibatch_size = 128
+        Dict_jobs = 1
+        Debug_flag = True
+        Pre_trained_filters = prepare_dictionaries(Samples, Filter_specs, Dict_alpha=Dict_alpha, Dict_epochs=Dict_epochs, Dict_minibatch_size=Dict_minibatch_size, Dict_jobs=Dict_jobs, Debug_flag=Debug_flag)
+        
+    
     # this C may not include all of the classes in the dev set if dev_targets is not inside train_targets,
     # which is okay - that just means that for now we will always fail to classify some of the dev set
     C = len(train_targets)
-    model = ConvNeuralNet(C, args.f1)
+    model = ConvNeuralNet(C, args.f1, Filter_specs=Filter_specs, Pre_trained_filters=Pre_trained_filters)
     if (torch.cuda.is_available()):
         model = model.cuda()
 

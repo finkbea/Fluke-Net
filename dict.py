@@ -56,6 +56,16 @@ def prepare_dictionaries (Samples, Filter_specs, Dict_alpha=2, Dict_epochs=1, Di
         if Debug_flag :
             print('Layer ' + str(Layer) + ' Patches reshaped size: ' + str(Patches.shape))        
 
+        """
+        ==================================================================================================
+        TODO
+        This really needs to be set up to do minibatching instead of full batch training.
+        Full batches take WAY too much memory. So what I need to do, is fetch a sample image,
+        cut it into patches, run a minibatch pass, and repeat until done.
+        ==================================================================================================
+        """
+
+            
         # Fit the dictionary and append the atoms to the list of finished kernels
         # We must loop through each channel of the Samples to compute the parts of
         # the kernels that will act on that channel.
@@ -121,20 +131,23 @@ def main(argv):
     Samples_tensor = torch.from_numpy(Samples)
     Samples_tensor = Samples_tensor.permute(0, 3, 1, 2)
 
-    Filter_specs = [[5,3,3]]
+    Filter_specs = [[32,5,5],[64,3,3]]
     #Filter_specs = [[3,3,3],[3,5,5],[10,5,5]]
 
-    Filters_list = prepare_dictionaries(Samples_tensor, Filter_specs, Dict_jobs=-1, Debug_flag=True)
+    Filters_list = prepare_dictionaries(Samples_tensor, Filter_specs, Dict_epochs=10, Dict_jobs=-1, Debug_flag=True)
 
-    if not os.path.exists('filters'):
-        os.mkdir('filters')
-    
-    for Layer in range(len(Filters_list)) :
+    printimg = False
+    if printimg == True :
         
-        Filters_list[Layer] = (Filters_list[Layer].permute(0, 2, 3, 1).numpy() * 255).astype(np.uint8)
+        if not os.path.exists('filters'):
+            os.mkdir('filters')
 
-        for Filter in range(Filters_list[Layer].shape[0]) :
-            cv2.imwrite('filters/f'+str(Layer)+'-'+str(Filter)+'.png', Filters_list[Layer][Filter])
+        for Layer in range(len(Filters_list)) :
+
+            Filters_list[Layer] = (Filters_list[Layer].permute(0, 2, 3, 1).numpy() * 255).astype(np.uint8)
+
+            for Filter in range(Filters_list[Layer].shape[0]) :
+                cv2.imwrite('filters/f'+str(Layer)+'-'+str(Filter)+'.png', Filters_list[Layer][Filter])
 
 
             
