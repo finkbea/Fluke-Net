@@ -1,6 +1,7 @@
 # Caelan Booker
 # Dictionary based kernel initialization for fluke net
 
+import os
 import sys
 import numpy as np
 import scipy as sc
@@ -9,7 +10,7 @@ import sklearn.feature_extraction as skfe
 import cv2
 import torch
 
-def prepare_dictionaries (Samples, Filter_specs, Dict_alpha=2, Dict_epochs=1, Dict_minibatch_size=128, Dict_jobs=1) :
+def prepare_dictionaries (Samples, Filter_specs, Dict_alpha=2, Dict_epochs=1, Dict_minibatch_size=128, Dict_jobs=1, Debug_flag=False) :
     """
     Prepare dictionary filters for the convolution layers of fluke_net.
     
@@ -33,6 +34,9 @@ def prepare_dictionaries (Samples, Filter_specs, Dict_alpha=2, Dict_epochs=1, Di
     Filters_output = []
     
     for Layer in range(len(Filter_specs)) :
+        if Debug_flag :
+            print('Layer ' + str(Layer) + ' Samples size: ' + str(Samples.shape))
+        
         # Extract patches from all the samples.
         # First unfold returns view of all slices of size 'Kernel_height', unfolding
         # along the height dimension. Second call handles unfolding along the width
@@ -42,11 +46,15 @@ def prepare_dictionaries (Samples, Filter_specs, Dict_alpha=2, Dict_epochs=1, Di
         # This results in a tensor of the following format:
         # [Num_samples, Channels, Num_height_slices, Num_width_slices, Kernel_height, Kernel_width]
         Patches = Samples.unfold(2, Filter_specs[Layer][1], 1).unfold(3, Filter_specs[Layer][2], 1)
+        if Debug_flag :
+            print('Layer ' + str(Layer) + ' Patches view size: ' + str(Patches.shape))
 
         # Move channels dimension to the front and reshape tensor to following format:
         # [Channel, Num_patches, Patch_data]
         Patches = Patches.permute(1, 0, 2, 3, 4, 5)
-        Patches = Patches.reshape(Patches.shape[0], -1, Filter_specs[Layer][1]*Filter_specs[Layer][2])        
+        Patches = Patches.reshape(Patches.shape[0], -1, Filter_specs[Layer][1]*Filter_specs[Layer][2])
+        if Debug_flag :
+            print('Layer ' + str(Layer) + ' Patches reshaped size: ' + str(Patches.shape))        
 
         # Fit the dictionary and append the atoms to the list of finished kernels
         # We must loop through each channel of the Samples to compute the parts of
@@ -81,7 +89,9 @@ def prepare_dictionaries (Samples, Filter_specs, Dict_alpha=2, Dict_epochs=1, Di
 
         # Convert ndarray of kernels into a tensor.
         # Must also reorder so that it follows the NCHW format of tensors.
-        Kernels_tensor = torch.from_numpy(Kernels).permute(0, 3, 1, 2) 
+        Kernels_tensor = torch.from_numpy(Kernels).permute(0, 3, 1, 2)
+        if Debug_flag :
+            print('Layer ' + str(Layer) + ' Kernels size: ' + str(Kernels_tensor.shape)) 
         
         # Create feature map by convolving over Samples with the filters we made
         # from them.
@@ -110,10 +120,14 @@ def main(argv):
     
     Samples_tensor = torch.from_numpy(Samples)
     Samples_tensor = Samples_tensor.permute(0, 3, 1, 2)
-    
-    Filter_specs = [[3,3,3],[3,5,5],[10,5,5]]
 
-    Filters_list = prepare_dictionaries(Samples_tensor, Filter_specs)
+    Filter_specs = [[5,3,3]]
+    #Filter_specs = [[3,3,3],[3,5,5],[10,5,5]]
+
+    Filters_list = prepare_dictionaries(Samples_tensor, Filter_specs, Dict_jobs=-1, Debug_flag=True)
+
+    if not os.path.exists('filters'):
+        os.mkdir('filters')
     
     for Layer in range(len(Filters_list)) :
         
