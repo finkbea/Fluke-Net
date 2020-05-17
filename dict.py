@@ -1,4 +1,5 @@
-# Caelan Booker Dictionary initialization for fluke net
+# Caelan Booker
+# Dictionary based kernel initialization for fluke net
 
 import sys
 import numpy as np
@@ -8,120 +9,120 @@ import sklearn.feature_extraction as skfe
 import cv2
 import torch
 
-#TODO
-"""
-Still need to add every variable used in this function as a parameter with a default value
-"""
-def prepare_dictionaries (Samples, Filters_per_layer) :
+def prepare_dictionaries (Samples, Filter_specs, Dict_minibatch_size=128, Dict_epochs=1) :
     """
     Prepare dictionary filters for the convolution layers of fluke_net.
     
     Parameters:
-    Samples ........... A list of images represented as numpy arrays. These are expected
-                        to have 3 channels (r,g,b).
-    Layer_count ....... The number of convolution layers in fluke_net.
-    Filters_per_layer . A list of ints stating how many filters must be made. The length
-                        of this list must equal Layer_count, and the index of an item
-                        in the list corresponds to which layer in fluke_net it is for.
+    Samples ........... A tensor of all the samples used to make the dictionaries. This
+                        tensor should be of format:
+                        [Num_samples, Channels, Height, Width]
+                        The type of these tensors should be 64 bit floats.
+    Filter_specs ...... A list stating how many filters must be made and their specifications.
+                        The length of the list should be equal to the number of layers in the
+                        model. Each list item should be the following format:
+                        [Num_out_channels, Kernel_height, Kernel_width]  
+                        Num_out_channels can also be though of as the number of kernels for
+                        a given layer.
+    Return values:
+    Filters_output .... A list of tensors. Each tensor is a set of all the kernels for a
+                        layer. The tensors are of the following format:
+                        [Num_of_kernels, Channels, Kernel_height, Kernel_width]
     """
-
-    if Samples.dtype is np.dtype('uint8') :
-        # If the samples are still of byte type, convert them to floats
-        Samples = Samples.astype('float64') / 255
     
-    Layer_count = len(Filters_per_layer)
     Filters_output = []
-    Num_samples = len(Samples)
-    Minibatch_size = 128
-    patch_height = 3
-    patch_width = patch_height
     
-    for Layer in range(Layer_count) :
-        # Extract patches from all the samples
+    for Layer in range(len(Filter_specs)) :
+        # Extract patches from all the samples.
+        # First unfold returns view of all slices of size 'Kernel_height', unfolding
+        # along the height dimension. Second call handles unfolding along the width
+        # dimension with slices of size 'Kernel_width'. The end result is a tensor
+        # view of the samples cut into the patches needed for training. Both use a
+        # stride of 1.
+        # This results in a tensor of the following format:
+        # [Num_samples, Channels, Num_height_slices, Num_width_slices, Kernel_height, Kernel_width]
+        Patches = Samples.unfold(2, Filter_specs[Layer][1], 1).unfold(3, Filter_specs[Layer][2], 1)
 
+        # Move channels dimension to the front and reshape tensor to following format:
+        # [Channel, Num_patches, Patch_data]
+        Patches = Patches.permute(1, 0, 2, 3, 4, 5)
+        Patches = Patches.reshape(Patches.shape[0], -1, Filter_specs[Layer][1]*Filter_specs[Layer][2])        
 
-        #TODO
-        # =============================================================
-        """
-        Right now, at the start of the first run of this loop Samples is a
-        numpy array. But at the end, it is assigned a tensor. I really outta
-        just convert the samples to a tensor up front and then figure out
-        how to extract patches from a tensor, because it will be innefficient
-        to convert the tensors back to a numpy array just to extract patches
-        only to convert them back to tensors to convolve with, etc.
-        """
-        # =============================================================
-        Patches = None
-        for Image in Samples :
-            tmp_patch_arr = skfe.image.extract_patches_2d(Image, (patch_height, patch_width))
-            if Patches is None :
-                Patches = tmp_patch_arr
-            else :
-                np.append(Patches, tmp_patch_arr, 0)
-                
-        # patches should be an array of shape (number of patches, patch_height, patch_width, patch_channels)
-        # If working on single channel images, that last dimension may be omitted.               
-        # Reshape, also separating the channels (rgb layers on input images)
-        Original_patches_shape = Patches.shape
-        #print(Original_patches_shape)
-        Patches = Patches.reshape((Original_patches_shape[0], -1, Original_patches_shape[3]))
-        #print(Patches.shape)
-        
         # Fit the dictionary and append the atoms to the list of finished kernels
-        Dict_epochs = 1
-        Kernels = None
-        for Channel in range(Patches.shape[2]) :
-            Dict = skde.MiniBatchDictionaryLearning(n_components=Filters_per_layer[Layer],  # num of dict elements to extract
+        # We must loop through each channel of the Samples to compute the parts of
+        # the kernels that will act on that channel.
+        Kernels_list = []
+        for Channel in range(Patches.shape[0]) :
+            # NOTE:
+            # The sklearn functions take 'array-like' as parameters for fitting.
+            # I am just passing in the tensors and it seems to be working fine,
+            # I don't think I need to convert these back to numpy ndarrays before use.
+            
+            # Initialize a dictionary for the given channel of the samples.
+            Dict = skde.MiniBatchDictionaryLearning(n_components=Filter_specs[Layer][0],  # num of dict elements to extract
                                                         alpha=2,  # sparsity controlling param
                                                         n_iter=Dict_epochs,  # num of epochs per partial_fit()
-                                                        batch_size=Minibatch_size,
+                                                        batch_size=Dict_minibatch_size,
                                                         transform_algorithm='omp',
                                                         n_jobs=-1)  # number of parallel jobs to run
-            Dict.fit(Patches[:,:,Channel])
-            Atoms = Dict.components_
-            Reshaped_atoms = Atoms.reshape((Filters_per_layer[Layer], patch_height, patch_width, 1))
-            if Kernels is None :
-                Kernels = Reshaped_atoms
-            else :
-                Kernels = np.append(Kernels, Reshaped_atoms, axis=3)
+            
+            # Fit the dictionary to the current channels patches.
+            # Fit takes an array parameter of the following format:
+            # [Num_samples, Num_features]
+            Dict.fit(Patches[Channel,:,:])
 
-        print(Kernels.shape)
+            # Reshape the atoms (dictionary components) into kernels and append
+            # them to our output list. The components_ array is of format:
+            # [Num_components, Num_features]
+            Kernels_list.append(Dict.components_.reshape((Filter_specs[Layer][0], Filter_specs[Layer][1], Filter_specs[Layer][2], 1)))
+
+        # Concatenate the list of individual kernels into a ndarry.
+        Kernels = np.concatenate(Kernels_list, axis=3)
+
+        # Convert ndarray of kernels into a tensor.
+        # Must also reorder so that it follows the NCHW format of tensors.
+        Kernels_tensor = torch.from_numpy(Kernels).permute(0, 3, 1, 2) 
         
-        # remap ?
-        Feature_map = []
+        # Create feature map by convolving over Samples with the filters we made
+        # from them.
+        Convolve_out = torch.nn.functional.conv2d(Samples, Kernels_tensor)
 
-        Images_tensor = torch.from_numpy(Samples)
-        print(Images_tensor.shape)
-        Images_tensor = Images_tensor.permute(0, 3, 1, 2)
-        print(Images_tensor.shape)
-        Kernels_tensor = torch.from_numpy(Kernels)
-        Kernels_tensor = Kernels_tensor.permute(0, 3, 1, 2)
-        print(Images_tensor.type())
-        print(Kernels_tensor.type())
-        Convolve_out = torch.nn.functional.conv2d(Images_tensor, Kernels_tensor)
-        print(Convolve_out.shape)
-
-
-        # Normalize according to activation function (ReLU), and set to Samples
-        # for next iteration
+        # Normalize feature map according to activation function (ReLU), and        
+        # set to Samples for next iteration.
         Samples = torch.nn.functional.relu(Convolve_out)
 
-        # Append generated filters to return list 
-        Filters_output.append(Kernels)
+        # Append generated filters to return list.
+        Filters_output.append(Kernels_tensor)
         
     return Filters_output
-                    
-def main(argv):
-    img = cv2.imread('whale1.jpg')  # this reads in bgr format
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # convert from bgr to rgb
-    #print(img[0:3,0:3,:])  # all the pixels are 0-255
-    Samples = img.reshape((1,)+img.shape)
-    Filters_per_layer = [10]
-    fils = prepare_dictionaries(Samples, Filters_per_layer)
-    for a in range(len(fils)) :
-        fils[a] = (fils[a] * 255).astype(np.uint8)
-        for i in range(len(fils[a])) :
-            cv2.imwrite('filters/f'+str(a)+'-'+str(i)+'.png', fils[a][i])
 
+
+
+def main(argv):
+    img1 = cv2.imread('whale1.jpg')  # this reads in bgr format
+    img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2RGB)  # convert from bgr to rgb
+    img2 = cv2.imread('whale2.jpg')  
+    img2 = cv2.cvtColor(img2, cv2.COLOR_BGR2RGB)
+    
+    Samples = img1.reshape((1,)+img1.shape)
+    Samples = np.append(Samples, img2.reshape((1,)+img1.shape), 0)
+    Samples = Samples.astype('float64') / 255
+    
+    Samples_tensor = torch.from_numpy(Samples)
+    Samples_tensor = Samples_tensor.permute(0, 3, 1, 2)
+    
+    Filter_specs = [[3,3,3],[3,5,5],[10,5,5]]
+
+    Filters_list = prepare_dictionaries(Samples_tensor, Filter_specs)
+    
+    for Layer in range(len(Filters_list)) :
+        
+        Filters_list[Layer] = (Filters_list[Layer].permute(0, 2, 3, 1).numpy() * 255).astype(np.uint8)
+
+        for Filter in range(Filters_list[Layer].shape[0]) :
+            cv2.imwrite('filters/f'+str(Layer)+'-'+str(Filter)+'.png', Filters_list[Layer][Filter])
+
+
+            
 if __name__ == "__main__":
     main(sys.argv)
