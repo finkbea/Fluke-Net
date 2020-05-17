@@ -9,7 +9,7 @@ import sklearn.feature_extraction as skfe
 import cv2
 import torch
 
-def prepare_dictionaries (Samples, Filter_specs, Dict_minibatch_size=128, Dict_epochs=1) :
+def prepare_dictionaries (Samples, Filter_specs, Dict_alpha=2, Dict_epochs=1, Dict_minibatch_size=128, Dict_jobs=1) :
     """
     Prepare dictionary filters for the convolution layers of fluke_net.
     
@@ -60,11 +60,11 @@ def prepare_dictionaries (Samples, Filter_specs, Dict_minibatch_size=128, Dict_e
             
             # Initialize a dictionary for the given channel of the samples.
             Dict = skde.MiniBatchDictionaryLearning(n_components=Filter_specs[Layer][0],  # num of dict elements to extract
-                                                        alpha=2,  # sparsity controlling param
+                                                        alpha=Dict_alpha,  # sparsity controlling param
                                                         n_iter=Dict_epochs,  # num of epochs per partial_fit()
                                                         batch_size=Dict_minibatch_size,
                                                         transform_algorithm='omp',
-                                                        n_jobs=-1)  # number of parallel jobs to run
+                                                        n_jobs=Dict_jobs)  # number of parallel jobs to run
             
             # Fit the dictionary to the current channels patches.
             # Fit takes an array parameter of the following format:
