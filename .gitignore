@@ -127,8 +127,3 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
-
-# Connor's ignores
-.vscode
-fake_deps.txt
-whales
