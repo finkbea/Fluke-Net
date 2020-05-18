@@ -1,0 +1,61 @@
+Skips from...
+	new_whale: 9664
+	AR_LT: 16
+	AR_UT: 191
+Total skips: 9871
+Remaining data points: 15490
+
+Splitting classes...
+	Number of classes with 1 examples, dev=419,train=1674
+	Number of classes with 2 examples, dev=253,train=1016
+	Number of classes with 3 examples, dev=114,train=455
+	Number of classes with 4 examples, dev=53,train=214
+	Number of classes with 5 examples, dev=35,train=137
+	Number of classes with 6 examples, dev=27,train=111
+	Number of classes with 7 examples, dev=17,train=68
+	Number of classes with 8 examples, dev=14,train=59
+	Number of classes with 9 examples, dev=13,train=48
+	Number of classes with 10 examples, dev=8,train=34
+	Number of classes with 11 examples, dev=8,train=31
+	Number of classes with 12 examples, dev=4,train=17
+	Number of classes with 13 examples, dev=3,train=11
+	Number of classes with 14 examples, dev=4,train=16
+	Number of classes with 15 examples, dev=4,train=13
+	Number of classes with 16 examples, dev=3,train=15
+	Number of classes with 17 examples, dev=3,train=11
+	Number of classes with 18 examples, dev=1,train=6
+	Number of classes with 19 examples, dev=2,train=6
+	Number of classes with 20 examples, dev=1,train=6
+	Number of classes with 21 examples, dev=2,train=4
+	Number of classes with 22 examples, dev=0,train=3
+	Number of classes with 23 examples, dev=1,train=3
+	Number of classes with 24 examples, dev=1,train=6
+	Number of classes with 25 examples, dev=1,train=1
+	Number of classes with 27 examples, dev=0,train=2
+	Number of classes with 29 examples, dev=1,train=2
+	Number of classes with 30 examples, dev=0,train=1
+	Number of classes with 31 examples, dev=1,train=2
+	Number of classes with 32 examples, dev=0,train=1
+	Number of classes with 33 examples, dev=1,train=0
+	Number of classes with 34 examples, dev=0,train=2
+	Number of classes with 35 examples, dev=1,train=0
+	Number of classes with 36 examples, dev=0,train=1
+	Number of classes with 37 examples, dev=1,train=2
+	Number of classes with 40 examples, dev=0,train=3
+	Number of classes with 44 examples, dev=1,train=0
+	Number of classes with 45 examples, dev=0,train=1
+	Number of classes with 47 examples, dev=1,train=0
+	Number of classes with 48 examples, dev=0,train=1
+	Number of classes with 49 examples, dev=1,train=0
+	Number of classes with 50 examples, dev=0,train=1
+	Number of classes with 51 examples, dev=1,train=0
+	Number of classes with 53 examples, dev=0,train=1
+	Number of classes with 57 examples, dev=1,train=0
+	Number of classes with 61 examples, dev=0,train=1
+	Number of classes with 62 examples, dev=1,train=0
+	Number of classes with 65 examples, dev=0,train=1
+	Number of classes with 73 examples, dev=1,train=0
+
+Adding data points...
+	3372 added to dev set
+	12118 added to train set
