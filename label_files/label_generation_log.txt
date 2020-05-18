@@ -1,0 +1,8 @@
+Skips from...
+	new_whale: 9664
+	AR_LT: 16
+	AR_UT: 191
+Total skips: 9871
+Remaining data points: 15490
+3098 added to dev set
+12393 added to train set
