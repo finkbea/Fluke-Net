@@ -96,7 +96,7 @@ class PrototypicalDataset(torch.utils.data.Dataset):
         else:
             query = None
 
-        return (support,len(self.class_dict.getImages(id))), query
+        return support, query
 
     def getImageTensor(self, img_path, aggressive=False):
         file = os.path.join(self.image_dir_path, img_path)
