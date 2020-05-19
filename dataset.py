@@ -10,112 +10,183 @@ import numpy as np
 import os
 import csv
 import random
+from random import shuffle
 from PIL import Image
 from torchvision import transforms
 
-class FlukeDataset(torch.utils.data.Dataset):
-    def __init__(self, input_filepath, input_target_pairs_filepath, class_dict):
-        'Initialization'
-        self.inputs = []
-        self.targets = []
+class PrototypicalDataset(torch.utils.data.Dataset):
 
-        self.input_filepath = input_filepath
-        with open(input_target_pairs_filepath, newline='') as labels:
-            labels = csv.DictReader(labels)
-            for row in labels:
-                # for now, just ignore the catchall "new_whale" class
-                if (row['Id'] == 'new_whale'):
-                    continue
+    def __init__(self, image_dir_path: str, labels_file_path: str, n_classes: int, apply_enhancements=True, 
+                 psuedo_second_image=False, n_support=1, n_query=1, image_shape=(100,100)):
+        """
+        Non-Obvious Parameters
 
-                if (not class_dict.hasClass(row['Id'])):
-                    class_dict.addClass(row['Id'])
+        apply_enhancements
+            Whether or not basic image enhancements are applied.
 
-                self.inputs.append(row['Image'])
+        n_classes, n_support (default: 1), n_query (default: 1?)
+            Number of classes per episode, support examples per class, and query examples per class.
 
-                # set our target to an int instead of the human-readable filename string
-                # because torch.nn.CrossEntropyLoss needs an int to identify classes;
-                # this is functionally equivalent to a one-hot vector
-                self.targets.append(class_dict.getClassId(row['Id']))
-        
-        self.inputs = self.inputs
-        self.targets = self.targets
+        image_shape (default: (100,100))
+            Fixed-size output size of images.
 
+        pseudo_second_image: (default False)
+            Whether or not aggressive image transformations are applied to give the appearance that
+                a class has 2 samples.
+        """
+        self.apply_enhancements = apply_enhancements
+        self.psuedo_second_image = psuedo_second_image
+
+        self.image_shape = image_shape
+        self.image_dir_path = image_dir_path
+        self.class_dict = ClassDictionary(labels_file_path)
+
+        self.n_classes = n_classes
+        self.n_support = n_support
+        self.n_query = n_query
+
+    # This is janky and shouldn't work like this
+    def initEpoch(self):
+        self.epoch_order = list(self.class_dict.getClasses())
+        shuffle(self.epoch_order)
+        self.episode_index = 0
+
+    # But, the alternative is very painful
+    def epochFinished(self):
+        return self.episode_index >= len(self.epoch_order)
+
+    # See the example script for how this should work
+    def nextEpisode(self):
+        self.episode = self.epoch_order[self.episode_index:self.episode_index+self.n_classes]
+        self.episode_index += self.n_classes
 
     def __len__(self):
-        'Denotes the total number of samples'
-        return len(self.inputs)
+        'The amount of classes in the given episode'
+        return len(self.episode)
 
     def __getitem__(self, index):
-        'Generates one sample of data'
-        file = os.path.join(self.input_filepath, self.inputs[index])
+        'Generates the support and query set for one class in the episode'
+        id = self.episode[index]
+        img_paths = self.class_dict.getImages(id)
+        shuffle(img_paths)
+
+        support = []
+        query   = []
+
+        # Add all support examples, erroring out if n_support was too
+        #   high for the given dataset
+        for _ in range(self.n_support):
+            support.append(self.getImageTensor(img_paths.pop()))
+
+        # If query set exceeded, that's expected
+        for _ in range(self.n_query):
+            try:
+                query.append(self.getImageTensor(img_paths.pop()))
+            except:
+                # If no samples were had, generate a second pseudo image if that option
+                #   was set.
+                if self.psuedo_second_image and len(query) == 0:
+                    img_paths = shuffle(self.class_dict.getImages(id))
+                    query.append(self.getImageTensor(img_paths.pop(), aggressive=True))
+                break
+
+        support = torch.stack(support)
+        if len(query) > 0:
+            query = torch.stack(query)
+        else:
+            query = None
+
+        return (support,len(self.class_dict.getImages(id))), query
+
+    def getImageTensor(self, img_path, aggressive=False):
+        file = os.path.join(self.image_dir_path, img_path)
 
         # load the image and ensure that it has 3 channels (vs only 1 for grayscale)
         image = Image.open(file).convert('RGB')
-        image = self.applyRandomTransformation(image)
 
-        x = transforms.functional.to_tensor(image)
+        # If applying aggressive transformations, don't stack those on top of 
+        #   normal ones as well.
+        if self.apply_enhancements and not aggressive:
+            image = self.applyRandomTransformation(image)
+        elif aggressive:
+            image = self.applyAggressiveTransformation(image)
+
+        out = transforms.functional.to_tensor(image)
         if (torch.cuda.is_available()):
-            x = x.cuda()
-
-        y = self.targets[index]
-
-        return x, y
-
-    def getUniqueTargets(self):
-        'Gets list of target classes in this dataset'
-        return np.unique(self.targets)
+            out = out.cuda()
+        return out
 
     def applyRandomTransformation(self, image):
         """
         Applies a random combination of image transformations to a PIL image,
-        resizing to 100x100 at the end
+        resizing to image_size at the end
+        """
+        transform_list = []
+
+        # no need for a loop here - we can get an equivalent range of outputs
+        # with only one call to each transformation
+
+        # Approximately the proportion of images grayscale in the dataset
+        transform_list.append(transforms.RandomGrayscale(p=0.2))
+        transform_list.append(transforms.RandomHorizontalFlip(p=0.5))
+        transform_list.append(transforms.RandomRotation((-30, 30), resample=False, expand=True, center=None))
+
+        if (random.random() > 0.5):
+            scale = random.uniform(0.5, 1.0)
+            crop = (int(image.size[1] * scale), int(image.size[0] * scale))
+            transform_list.append(transforms.RandomCrop(crop))
+
+        transform_list.append(transforms.Resize(self.image_shape))
+        final_transform = transforms.Compose(transform_list)
+
+        return final_transform(image)
+
+    def applyAggressiveTransformation(self, image):
+        """
+        Applies aggressive random transformations to hopefully approxmiate
+        a different datapoint entirely.
         """
         transform_list = []
 
         # no need for a loop here - we can get an equivalent range of outputs
         # with only one call to each transformation
         transform_list.append(transforms.RandomGrayscale(p=0.5))
-        transform_list.append(transforms.RandomHorizontalFlip(p=0.5))
-        transform_list.append(transforms.RandomRotation((-30, 30), resample=False, expand=True, center=None))
+        # always flip
+        transform_list.append(transforms.RandomHorizontalFlip(p=1.0))
+        # possibly rotating too much is a bad idea?
+        transform_list.append(transforms.RandomRotation((-45, 45), resample=False, expand=True, center=None))
 
-        # disabling cropping for now because I keep getting randrange errors from inside transforms.RandomCrop;
-        # I must be using the wrong dimensions or something
-        # transform_list.append(transforms.RandomCrop((random.randint(image.size[1] // 4, image.size[1]), random.randint(image.size[0] // 4, image.size[0]))))
+        # Randomly crop where aspect ratio is (most likely) not maintained
+        scale_h = random.uniform(0.5, 0.8)
+        scale_w = random.uniform(0.5, 0.8)
+        crop = (int(image.size[1] * scale_h), int(image.size[0] * scale_w))
+        transform_list.append(transforms.RandomCrop(crop))
 
-        transform_list.append(transforms.Resize((100, 100)))
+        transform_list.append(transforms.Resize(self.image_shape))
         final_transform = transforms.Compose(transform_list)
 
         return final_transform(image)
 
-    def numClasses(self):
-        return len(self.targets)
-
 """
-Dictionary class to store mappings between human-readable class names
-and identifiers that we can feed into a NN. An instance of this class
-can be shared across multiple DataSets.
+Creates a dictionary holding all the image paths in a given class
 """
 class ClassDictionary():
-    def __init__(self):
-        'Initialization'
-        self.id_counter = 0
-        self.name_to_id = {}
-        self.id_to_name = {}
+    def __init__(self, labels_file_path):
+        self.class_dict = {}
 
-    def addClass(self, name):
-        'Adds a new class to dictionary and assigns it a unique id'
-        self.name_to_id[name] = self.id_counter
-        self.id_to_name[self.id_counter] = name
-        self.id_counter += 1
+        with open(labels_file_path, newline='') as labels:
+            labels = csv.DictReader(labels)
+            for row in labels:
+                id = row['Id']
+                image = row['Image']
 
-    def hasClass(self, name):
-        'Returns true if this class has already been assigned an id'
-        return name in self.name_to_id
+                if id in self.class_dict:
+                    self.class_dict[id].append(image)
+                else:
+                    self.class_dict[id] = [image]
 
-    def getClassName(self, class_id):
-        'Maps a unique class id to a human-readable class name'
-        return self.id_to_name[class_id]
-
-    def getClassId(self, name):
-        'Maps a human-readable class name to a unique class id'
-        return self.name_to_id[name]
+    def getClasses(self):
+        return self.class_dict.keys()
+    
+    def getImages(self, id):
+        return self.class_dict[id].copy()
