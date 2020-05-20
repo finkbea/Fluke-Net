@@ -18,10 +18,10 @@ import torch
 import argparse
 import sys
 import numpy as np
-from dataset import FlukeDataset, ClassDictionary
+from dataset import PrototypicalDataset, protoCollate, ClassDictionary
 
 class ConvNeuralNet(torch.nn.Module):
-    def __init__(self, C, f1, Filter_specs=None, Pre_trained_filters=None):
+    def __init__(self, embed_dim, f1, Filter_specs=None, Pre_trained_filters=None):
         super(ConvNeuralNet, self).__init__()
 
         self.F = getattr(torch, f1)
@@ -39,9 +39,7 @@ class ConvNeuralNet(torch.nn.Module):
         # it's easier to just print the maxpool2 output shape inside the forward fn
         self.dense_hidden = torch.nn.Linear(11*11*64, 512)
 
-        self.output = torch.nn.Linear(512, C)
-
-
+        self.embed = torch.nn.Linear(512, embed_dim)
         
         if not Pre_trained_filters is None :
             # If we have pre-trained filters, set our weights to them.
@@ -71,7 +69,7 @@ class ConvNeuralNet(torch.nn.Module):
         x = self.dense_hidden(x)
         x = self.F(x)
 
-        x = self.output(x)
+        x = self.embed(x)
 
         return x
 
@@ -96,19 +94,48 @@ def parse_all_args():
             help="Dev performance is reported every report_freq updates (int) [default: 4]",default=4)
     parser.add_argument("-epochs",type=int,\
             help="The number of training epochs (int) [default: 100]",default=100)
+    parser.add_argument("-embed_dim",type=int,\
+            help="The number of dimensions in the embedding space (int) [default: 100]",default=100)
+
+    # these should both be read from the input csv, but this is fine for now
+    parser.add_argument("-train_classes",type=int,\
+            help="The number of classes to include in the training set (int) [default: 100]",default=100)
+    parser.add_argument("-dev_classes",type=int,\
+            help="The number of classes to include in the dev set (int) [default: 20]",default=20)
 
     return parser.parse_args()
 
+def distanceFromPrototypes(model, query_set, support_ids, support_map):
+    class_count = len(support_map.keys())
+    mb_size = query_set.shape[0]
+
+    # this could (should) all probably be parallelized much better once we're tuning things
+
+    prototypes = {}
+    for id,class_tensors in support_map.items():
+        prototypes[id] = model(class_tensors).mean(dim=0)
+
+    mb_query_embeddings = model(query_set)
+
+    euclid_dist = torch.zeros((mb_size, class_count))
+    for d in range(mb_size):
+        for class_id in range(class_count):
+            # negative because we want to punish high distance and reward low distance
+            euclid_dist[d][class_id] = -torch.dist(mb_query_embeddings[d], prototypes[class_id])
+
+    return euclid_dist
+
 def train(model,train_loader,dev_loader,N,args):
-    criterion = torch.nn.CrossEntropyLoss(reduction='sum')
+    criterion = torch.nn.CrossEntropyLoss(reduction='mean')
     optimizer = torch.optim.Adadelta(model.parameters(), lr=args.lr)
 
     for epoch in range(args.epochs):
 
-        for update,(mb_x,mb_y) in enumerate(train_loader):
+        for update,(query_set, support_ids, support_map) in enumerate(train_loader):
 
-            mb_y_pred = model(mb_x) # evaluate model forward function
-            loss      = criterion(mb_y_pred,mb_y) # compute loss
+            distance = distanceFromPrototypes(model, query_set, support_ids, support_map)
+
+            loss          = criterion(distance,support_ids)
 
             optimizer.zero_grad() # reset the gradient values
             loss.backward()       # compute the gradient values
@@ -119,18 +146,19 @@ def train(model,train_loader,dev_loader,N,args):
                 num_correct = 0
                 num_total = 0
 
-                for _,(dev_mb_x,dev_mb_y) in enumerate(dev_loader):
-                    dev_y_pred     = model(dev_mb_x)
-                    _,dev_y_pred_i = torch.max(dev_y_pred,1)
-                    num_correct   += (dev_y_pred_i == dev_mb_y).sum().data.numpy()
-                    num_total     += len(dev_mb_y)
+                for _,(dev_query_set, dev_support_ids, dev_support_map) in enumerate(dev_loader):
+                    dev_distance = distanceFromPrototypes(model, dev_query_set, dev_support_ids, dev_support_map)
+
+                    _,dev_y_pred_i = torch.max(dev_distance,1)
+                    num_correct   += (dev_y_pred_i == dev_support_ids).sum().data.numpy()
+                    num_total     += dev_query_set.shape[0]
                 dev_acc = num_correct / num_total
 
                 # it's not great that we're comparing one training minibatch to the entire dev set,
                 # but better than nothing
-                _,train_y_pred_i = torch.max(mb_y_pred,1)
-                train_num_correct = (train_y_pred_i == mb_y).sum().data.numpy()
-                train_acc = train_num_correct / len(mb_y)
+                _,train_y_pred_i = torch.max(distance,1)
+                train_num_correct = (train_y_pred_i == support_ids).sum().data.numpy()
+                train_acc = train_num_correct / query_set.shape[0]
 
                 print("%03d.%04d: train %.3f, dev %.3f" % (epoch,update,train_acc,dev_acc))
 
@@ -138,28 +166,15 @@ def main(argv):
     # parse arguments
     args = parse_all_args()
 
-    class_dict = ClassDictionary()
-
-    train_set = FlukeDataset(args.input_path, args.train_path, class_dict)
-    dev_set = FlukeDataset(args.input_path, args.dev_path, class_dict)
-
-    train_targets = train_set.getUniqueTargets()
-    dev_targets = dev_set.getUniqueTargets()
-    dev_only_target_count = len(np.setdiff1d(dev_targets, train_targets))
-
-    # print some info to help interpret dev/training set accuracy
-    print("%d distinct classes in %s" % (len(train_targets), args.train_path))
-    print("%d distinct classes in %s" % (len(dev_targets), args.dev_path))
-    if (dev_only_target_count):
-        print("%d classes (%.1f%%) in dev set not in training set" % (dev_only_target_count, 100 * dev_only_target_count / len(dev_targets)))
-    print('training classes:\n', train_targets)
-    print('dev classes:\n', dev_targets)
+    train_set = PrototypicalDataset(args.input_path, args.train_path, args.train_classes)
+    dev_set = PrototypicalDataset(args.input_path, args.dev_path, args.dev_classes)
 
     train_loader = torch.utils.data.DataLoader(train_set, shuffle=True,
-            drop_last=False, batch_size=args.mb, num_workers=8)
+            drop_last=False, batch_size=args.mb, num_workers=8,
+            collate_fn=protoCollate)
     dev_loader = torch.utils.data.DataLoader(dev_set, shuffle=True,
-            drop_last=False, batch_size=args.mb, num_workers=8)
-
+            drop_last=False, batch_size=args.mb, num_workers=8,
+            collate_fn=protoCollate)
 
     # Generate pre-trained filters using dictionary learning
     Pre_trained_filters = None
@@ -176,10 +191,7 @@ def main(argv):
         Pre_trained_filters = prepare_dictionaries(Samples, Filter_specs, Dict_alpha=Dict_alpha, Dict_epochs=Dict_epochs, Dict_minibatch_size=Dict_minibatch_size, Dict_jobs=Dict_jobs, Debug_flag=Debug_flag)
         
     
-    # this C may not include all of the classes in the dev set if dev_targets is not inside train_targets,
-    # which is okay - that just means that for now we will always fail to classify some of the dev set
-    C = len(train_targets)
-    model = ConvNeuralNet(C, args.f1, Filter_specs=Filter_specs, Pre_trained_filters=Pre_trained_filters)
+    model = ConvNeuralNet(args.embed_dim, args.f1, Filter_specs=Filter_specs, Pre_trained_filters=Pre_trained_filters)
     if (torch.cuda.is_available()):
         model = model.cuda()
 
