@@ -133,3 +133,7 @@ dmypy.json
 fake_deps.txt
 whales
 whales/**/*
+
+# Project ignores
+.condor_jobs/**/*
+run_model.sh

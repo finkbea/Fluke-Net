@@ -29,7 +29,7 @@ def protoCollate(batch):
 
 class PrototypicalDataset(torch.utils.data.Dataset):
 
-    def __init__(self, image_dir_path: str, labels_file_path: str, n_classes: int, apply_enhancements=True, 
+    def __init__(self, image_dir_path: str, labels_file_path: str, apply_enhancements=True, 
                  n_support=1, n_query=1, image_shape=(100,100)):
         """
         Non-Obvious Parameters
@@ -37,8 +37,8 @@ class PrototypicalDataset(torch.utils.data.Dataset):
         apply_enhancements
             Whether or not basic image enhancements are applied.
 
-        n_classes, n_support (default: 1), n_query (default: 1)
-            Number of classes per episode, support examples per class, and query examples per class.
+        n_support (default: 1), n_query (default: 1)
+            Number of support examples per class and query examples per class.
 
         image_shape (default: (100,100))
             Fixed-size output size of images.
@@ -50,7 +50,6 @@ class PrototypicalDataset(torch.utils.data.Dataset):
         self.image_dir_path = image_dir_path
         self.class_dict = ClassDictionary(labels_file_path)
 
-        self.n_classes = n_classes
         self.n_support = n_support
         self.n_query = n_query
 
@@ -123,8 +122,16 @@ class PrototypicalDataset(torch.utils.data.Dataset):
 
         if (random.random() > 0.5):
             scale = random.uniform(0.5, 1.0)
-            crop = (int(image.size[1] * scale), int(image.size[0] * scale))
-            transform_list.append(transforms.RandomCrop(crop))
+            h = min(int(image.size[1] * scale), image.size[1]-1)
+            w = min(int(image.size[0] * scale), image.size[0]-1)
+            crop = (h,w)
+            # This madness must end. Even with the above code, it failed after 29 epochs, or 
+            #   after ~50,000 images were pushed through this function. It must be the
+            #   rotation actually slightly shrinking the image in specific cases, and the fact
+            #   that its only ever off by a tiny power of 2  makes me think bit-level fuckery
+            #   is at play. Therefore, lets let it add the 4 pixels it needs to not throw 
+            #   an error with pad_if_needed=True
+            transform_list.append(transforms.RandomCrop(crop,pad_if_needed=True))
 
         return transform_list
 
