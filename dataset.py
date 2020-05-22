@@ -90,16 +90,23 @@ class PrototypicalDataset(torch.utils.data.Dataset):
         # load the image and ensure that it has 3 channels (vs only 1 for grayscale)
         image = Image.open(file).convert('RGB')
 
+        transform_list = []
         if self.apply_enhancements:
-            image = self.applyRandomTransformation(image)
+            transform_list = self.getRandomTransformations(image)
 
-        out = transforms.functional.to_tensor(image)
+        # default transforms
+        transform_list.append(transforms.Resize(self.image_shape))
+        transform_list.append(transforms.ToTensor())
+
+        transform = transforms.Compose(transform_list)
+        out = transform(image)
+
         if (torch.cuda.is_available()):
             out = out.cuda()
 
         return out
 
-    def applyRandomTransformation(self, image):
+    def getRandomTransformations(self, image):
         """
         Applies a random combination of image transformations to a PIL image,
         resizing to image_size at the end
@@ -119,10 +126,8 @@ class PrototypicalDataset(torch.utils.data.Dataset):
             crop = (int(image.size[1] * scale), int(image.size[0] * scale))
             transform_list.append(transforms.RandomCrop(crop))
 
-        transform_list.append(transforms.Resize(self.image_shape))
-        final_transform = transforms.Compose(transform_list)
+        return transform_list
 
-        return final_transform(image)
 
 """
 Creates a dictionary holding all the image paths in a given class
