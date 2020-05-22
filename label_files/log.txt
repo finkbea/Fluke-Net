@@ -10,7 +10,7 @@ Sorting labels...
 	Unseen classes: 4727
 
 Outputing labels...
-	4326 added to train set
-	342 added to dev set
+	4291 added to train set
+	377 added to dev set
 	dev_unseen_output not specified, skipping 10822
 	dev_new_whale_output not specified, skipping 9559

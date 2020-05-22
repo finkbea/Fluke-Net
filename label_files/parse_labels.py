@@ -94,8 +94,8 @@ def get_output_rows(labels, logger, args):
 
     targ_dev_classes = int(len(rem)*args.train_dev_split)
     for id in rem:
-        # Split labels if there is at least one sample and dev quota not satisfied
-        if dev_classes < targ_dev_classes and len(class_ex[id]) > args.train_examples_min:
+        # Split labels if dev quota not satisfied and minimum dev examples met
+        if dev_classes < targ_dev_classes and len(class_ex[id]) >= args.train_examples_min + args.dev_examples_min:
             if len(class_ex[id]) >= args.train_examples_min + args.dev_examples_max:
                 dev.extend(class_ex[id][:args.dev_examples_max])
                 train.extend(class_ex[id][args.dev_examples_max:])
@@ -164,6 +164,8 @@ def parse_args():
         help="The minimum examples per class in the train set [default: 10]", default=10)
     parser.add_argument("-dev_examples_max", type=int,
         help="The maximum examples per seen class in the dev set (int) [default: 3]", default=3)
+    parser.add_argument("-dev_examples_min", type=int,
+        help="The minimum examples per seen class in the dev set (int) [default: 2]", default=2)
 
     # Image-quality filters
     parser.add_argument("-AR_LT", type=float, 
