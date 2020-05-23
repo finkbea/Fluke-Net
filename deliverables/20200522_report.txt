@@ -1,0 +1,7 @@
+- Major Compenents: Caelan booker integrated his dictionary learning kernel initialization code our main training script. Connor Barlow wrote many scripts to analyze & partition our dataset, rewrote the our DataSet class to better provide inputs in the form required for prototypical learning, ran experiments on our code, narrowed our problem down to a easier problem that better fits our current abilities, and began work on some metrics to evaluate our model's performance. Dylan Thompson implemented the training loop & loss function from the prototypical network paper and he also worked with Connor on the DataSet class. 
+
+- Progress for upcoming major milestones: Most of the architecture that we initially set out to implement has been implemented. We are now working on making our training by parallelizing code that current isn't well parallelized, eliminating unneeded dependencies, and conducting a hyperparameter sweep. We also hope to find simple metrics and visualization to evaluate and explain our results.
+
+- Who worked on what parts and to what extent: see part 1.
+
+- Impeding obstacles: The big outstanding unknown of how to deal with classes with N = 1 and the catch-all "other" class has been addressed. Now, as we near the end of the quarter, our main problem is that everyone is getting busy with other commitments. Even though it's now crunch time we are spread more thin than before. 
