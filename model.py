@@ -21,25 +21,31 @@ import numpy as np
 from dataset import PrototypicalDataset, protoCollate, ClassDictionary
 
 class ConvNeuralNet(torch.nn.Module):
-    def __init__(self, embed_dim, f1, Filter_specs=None, Pre_trained_filters=None):
+    def __init__(self, embed_dim, f1, image_shape, Filter_specs=None, Pre_trained_filters=None):
         super(ConvNeuralNet, self).__init__()
 
         self.F = getattr(torch, f1)
 
-        # TODO: Make the number of channels and possibly the number of 
-        #   layers arguments since these seem essential but for now are
-        #   hard to modify
-
-        # conv1 specs
-        self.conv1 = torch.nn.Conv2d(3, 8, 3) # 100 -> 98
-        self.maxpool1 = torch.nn.MaxPool2d(2, 2) # 98 -> 49
-        # conv2 specs
-        self.conv2 = torch.nn.Conv2d(8, 16, 3) # 49 -> 47
-        self.maxpool2 = torch.nn.MaxPool2d(2, 2) # 47 -> 23
+        self.conv_list = torch.nn.ModuleList()
+        self.pool_list = torch.nn.ModuleList()
+        prev_channels = 3
+        out_w = image_shape[0]
+        out_h = image_shape[1]
+        for C,K,M in Filter_specs:
+            out_w -= (K-1)
+            out_h -= (K-1)
+            self.conv_list.append(torch.nn.Conv2d(prev_channels, C, K))
+            prev_channels = C
+            if not M == 0:
+                out_w //= M
+                out_h //= M
+                self.pool_list.append(torch.nn.MaxPool2d(M))
+            else:
+                self.pool_list.append(torch.nn.Identity())
 
         # in the future, I wouldn't do the math to figure out the size of this layer
         # it's easier to just print the maxpool2 output shape inside the forward fn
-        self.dense_hidden = torch.nn.Linear(23*23*16, 512)
+        self.dense_hidden = torch.nn.Linear(out_w*out_h*C, 512)
 
         # TODO: Another dense layer? (especially if/when conv filters have fixed params)
 
@@ -47,11 +53,8 @@ class ConvNeuralNet(torch.nn.Module):
         
         if not Pre_trained_filters is None :
             # If we have pre-trained filters, set our weights to them.
-            dummy_op = 0
-            conv1.weight = Pre_trained_filters[0]
-            conv2.weight = Pre_trained_filters[1]
-
-
+            for conv,filter in zip(self.conv_list,Pre_trained_filters):
+                conv.weight = filter
             
         for name, param in self.named_parameters():
             print(name,param.data.shape)
@@ -59,12 +62,10 @@ class ConvNeuralNet(torch.nn.Module):
     def forward(self, x):
         'Takes a Tensor of input data and return a Tensor of output data.'
 
-        x = self.conv1(x)
-        x = self.F(x)
-        x = self.maxpool1(x)
-        x = self.conv2(x)
-        x = self.F(x)
-        x = self.maxpool2(x)
+        for conv,pool in zip(self.conv_list, self.pool_list):
+            x = conv(x)
+            x = self.F(x)
+            x = pool(x)
 
         # print(x.shape)
 
@@ -85,6 +86,10 @@ def parse_all_args():
     parser.add_argument("input_path",help="The training set input data (directory)")
     parser.add_argument("train_path",help="The training set input/target data (csv)")
     parser.add_argument("dev_path",help="The development set input/target data (csv)")
+    parser.add_argument("filter_specs",type=str,
+            help="Comma-deliminated list of filter specifications. For each layer, the format is "\
+            + "CxKxM, where C is the number of filters, K is the size of each KxK filter, and M is either "\
+            + "the size of the max-pooling layer, or 0 if not being used")
 
     parser.add_argument("-f1",choices=["relu", "tanh", "sigmoid"],\
             help='The hidden activation function: "relu" or "tanh" or "sigmoid" (string) [default: "relu"]',default="relu")
@@ -100,6 +105,10 @@ def parse_all_args():
             help="The number of training epochs (int) [default: 100]",default=100)
     parser.add_argument("-embed_dim",type=int,\
             help="The number of dimensions in the embedding space (int) [default: 100]",default=100)
+
+    parser.add_argument("-pre_trained",type=str,
+            help="The directory of the .pt file that contains a list of convolutions. Must match filter"\
+            +" specs (optional)",default=None)
 
     # these should be read from the input csv, but this is fine for now
     parser.add_argument("-train_support",type=int,\
@@ -172,6 +181,14 @@ def train(model,train_loader,dev_loader,N,args):
 
                 print("%03d.%04d: train %.3f, dev %.3f" % (epoch,update,train_acc,dev_acc))
 
+def parse_filter_specs(filter_specs):
+    specs = []
+    for layer in filter_specs.split(','):
+        C,K,M=layer.split('x')
+        specs.append([int(C),int(K),int(M)])
+    return specs
+
+
 def main(argv):
     # parse arguments
     args = parse_all_args()
@@ -189,22 +206,12 @@ def main(argv):
     
     torch.multiprocessing.set_start_method("spawn")
 
-    # Generate pre-trained filters using dictionary learning
+    Filter_specs = parse_filter_specs(args.filter_specs)
     Pre_trained_filters = None
-    Filter_specs = None
-
-    if False :
-        Filter_specs = [[32,5,5],[64,3,3]]
-        Samples = None
-        Dict_alpha = 2
-        Dict_epochs = 10
-        Dict_minibatch_size = 128
-        Dict_jobs = 1
-        Debug_flag = True
-        Pre_trained_filters = prepare_dictionaries(Samples, Filter_specs, Dict_alpha=Dict_alpha, Dict_epochs=Dict_epochs, Dict_minibatch_size=Dict_minibatch_size, Dict_jobs=Dict_jobs, Debug_flag=Debug_flag)
-        
+    if not args.pre_trained is None:
+        pass # TODO: DO
     
-    model = ConvNeuralNet(args.embed_dim, args.f1, Filter_specs=Filter_specs, Pre_trained_filters=Pre_trained_filters)
+    model = ConvNeuralNet(args.embed_dim, args.f1, train_set.image_shape, Filter_specs=Filter_specs, Pre_trained_filters=Pre_trained_filters)
     if (torch.cuda.is_available()):
         model = model.cuda()
 
