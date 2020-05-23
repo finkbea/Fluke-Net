@@ -30,7 +30,7 @@ def protoCollate(batch):
 class PrototypicalDataset(torch.utils.data.Dataset):
 
     def __init__(self, image_dir_path: str, labels_file_path: str, apply_enhancements=True, 
-                 n_support=1, n_query=1, image_shape=(100,100)):
+                 n_support=1, n_query=1, image_shape=(224,224)):
         """
         Non-Obvious Parameters
 

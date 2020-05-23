@@ -1,16 +1,17 @@
 Filtering images...
 	AR_LT: 25
 	AR_UT: 287
-Total skips: 312
-Remaining data points: 25049
+	Min_Dim: 673
+Total skips: 985
+Remaining data points: 24376
 
 Sorting labels...
-	Train classes: 263
-	Dev classes: 131
-	Unseen classes: 4727
+	Train classes: 252
+	Dev classes: 126
+	Unseen classes: 4712
 
 Outputing labels...
-	4291 added to train set
-	377 added to dev set
-	dev_unseen_output not specified, skipping 10822
-	dev_new_whale_output not specified, skipping 9559
+	4090 added to train set
+	366 added to dev set
+	dev_unseen_output not specified, skipping 10616
+	dev_new_whale_output not specified, skipping 9304

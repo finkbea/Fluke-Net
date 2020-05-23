@@ -121,6 +121,7 @@ def filter_images(labels, logger, args):
 
     AR_LT_skipped = 0
     AR_UT_skipped = 0
+    Min_Dim_skipped = 0
 
     logger.log("Filtering images...")
     for row in labels:
@@ -131,13 +132,17 @@ def filter_images(labels, logger, args):
         elif (float(row["AR"]) > args.AR_UT):
             AR_UT_skipped += 1
             skip = True
+        elif (int(row["W"]) < args.Min_Dim or int(row["H"]) < args.Min_Dim):
+            Min_Dim_skipped += 1
+            skip = True
         
         if not skip:
             filtered.append(row)
     
     logger.log("\tAR_LT: " + str(AR_LT_skipped))
     logger.log("\tAR_UT: " + str(AR_UT_skipped))
-    logger.log("Total skips: " + str(AR_LT_skipped + AR_UT_skipped))
+    logger.log("\tMin_Dim: " + str(Min_Dim_skipped))
+    logger.log("Total skips: " + str(AR_LT_skipped + AR_UT_skipped + Min_Dim_skipped))
     logger.log("Remaining data points: " + str(len(filtered)))
     logger.log("")
     return filtered
@@ -172,6 +177,9 @@ def parse_args():
         help="A lower threshold for image AR (float) [default: 1.0]", default=1.0)
     parser.add_argument("-AR_UT", type=float, 
         help="An upper threshold for image AR (float) [default: 5.0]", default=5.0)
+    parser.add_argument("-Min_Dim", type=int,
+        help="The minimum size of either width or height that can be included in the dataset (int)"+
+        " [default: 224]", default=224) 
     
     # Other
     parser.add_argument("-log_path", help="Path to log file if desired (optional)", default="")
