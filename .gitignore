@@ -134,6 +134,8 @@ fake_deps.txt
 whales
 whales/**/*
 
-# Project ignores
-.condor_jobs/**/*
-run_model.sh
+# cluster ignores
+**/.condor_jobs/**/*
+job_startup_scripts/**/*
+pretrained_kernels/**/*
+

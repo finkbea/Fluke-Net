@@ -1,0 +1,9 @@
+Filtering images...
+	AR_LT: 25
+	AR_UT: 3068
+	Min_Dim: 8155
+Total skips: 11248
+Remaining data points: 14113
+
+Outputing labels...
+	14113 added to dict set

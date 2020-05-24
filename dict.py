@@ -7,10 +7,13 @@ import numpy as np
 import scipy as sc
 import sklearn.decomposition as skde
 import sklearn.feature_extraction as skfe
-import cv2
 import torch
+import argparse
+from utils import parse_filter_specs
+from dataset import PrototypicalDataset
+from random import shuffle
 
-def prepare_dictionaries (Samples, Filter_specs, Dict_alpha=2, Dict_epochs=1, Dict_minibatch_size=128, Dict_jobs=1, Debug_flag=False) :
+def prepare_dictionaries (Samples, Filter_specs, Dict_alpha=2, Dict_minibatch_size=5, Dict_epochs=1, Dict_jobs=1, Debug_flag=False) :
     """
     Prepare dictionary filters for the convolution layers of fluke_net.
     
@@ -20,11 +23,7 @@ def prepare_dictionaries (Samples, Filter_specs, Dict_alpha=2, Dict_epochs=1, Di
                         [Num_samples, Channels, Height, Width]
                         The type of these tensors should be 64 bit floats.
     Filter_specs ...... A list stating how many filters must be made and their specifications.
-                        The length of the list should be equal to the number of layers in the
-                        model. Each list item should be the following format:
-                        [Num_out_channels, Kernel_height, Kernel_width]  
-                        Num_out_channels can also be though of as the number of kernels for
-                        a given layer.
+                        see the relevant argument for details.
     Return values:
     Filters_output .... A list of tensors. Each tensor is a set of all the kernels for a
                         layer. The tensors are of the following format:
@@ -32,8 +31,8 @@ def prepare_dictionaries (Samples, Filter_specs, Dict_alpha=2, Dict_epochs=1, Di
     """
     
     Filters_output = []
-    
-    for Layer in range(len(Filter_specs)) :
+
+    for Layer,(C,K,M) in enumerate(Filter_specs):
         if Debug_flag :
             print('Layer ' + str(Layer) + ' Samples size: ' + str(Samples.shape))
         
@@ -44,28 +43,18 @@ def prepare_dictionaries (Samples, Filter_specs, Dict_alpha=2, Dict_epochs=1, Di
         # view of the samples cut into the patches needed for training. Both use a
         # stride of 1.
         # This results in a tensor of the following format:
-        # [Num_samples, Channels, Num_height_slices, Num_width_slices, Kernel_height, Kernel_width]
-        Patches = Samples.unfold(2, Filter_specs[Layer][1], 1).unfold(3, Filter_specs[Layer][2], 1)
+        # [Num_samples, Channels, Num_height_slices, Num_width_slices, K, K]
+        Patches = Samples.unfold(2, K, 1).unfold(3, K, 1).cpu()
         if Debug_flag :
             print('Layer ' + str(Layer) + ' Patches view size: ' + str(Patches.shape))
 
         # Move channels dimension to the front and reshape tensor to following format:
         # [Channel, Num_patches, Patch_data]
         Patches = Patches.permute(1, 0, 2, 3, 4, 5)
-        Patches = Patches.reshape(Patches.shape[0], -1, Filter_specs[Layer][1]*Filter_specs[Layer][2])
+        Patches = Patches.reshape(Patches.shape[0], -1, K**2)
         if Debug_flag :
             print('Layer ' + str(Layer) + ' Patches reshaped size: ' + str(Patches.shape))        
 
-        """
-        ==================================================================================================
-        TODO
-        This really needs to be set up to do minibatching instead of full batch training.
-        Full batches take WAY too much memory. So what I need to do, is fetch a sample image,
-        cut it into patches, run a minibatch pass, and repeat until done.
-        ==================================================================================================
-        """
-
-            
         # Fit the dictionary and append the atoms to the list of finished kernels
         # We must loop through each channel of the Samples to compute the parts of
         # the kernels that will act on that channel.
@@ -77,10 +66,10 @@ def prepare_dictionaries (Samples, Filter_specs, Dict_alpha=2, Dict_epochs=1, Di
             # I don't think I need to convert these back to numpy ndarrays before use.
             
             # Initialize a dictionary for the given channel of the samples.
-            Dict = skde.MiniBatchDictionaryLearning(n_components=Filter_specs[Layer][0],  # num of dict elements to extract
+            Dict = skde.MiniBatchDictionaryLearning(n_components=C,  # num of dict elements to extract
                                                         alpha=Dict_alpha,  # sparsity controlling param
                                                         n_iter=Dict_epochs,  # num of epochs per partial_fit()
-                                                        batch_size=Dict_minibatch_size,
+                                                        batch_size=Dict_minibatch_size, 
                                                         transform_algorithm='omp',
                                                         n_jobs=Dict_jobs)  # number of parallel jobs to run
             
@@ -92,64 +81,94 @@ def prepare_dictionaries (Samples, Filter_specs, Dict_alpha=2, Dict_epochs=1, Di
             # Reshape the atoms (dictionary components) into kernels and append
             # them to our output list. The components_ array is of format:
             # [Num_components, Num_features]
-            Kernels_list.append(Dict.components_.reshape((Filter_specs[Layer][0], Filter_specs[Layer][1], Filter_specs[Layer][2], 1)))
+            Kernels_list.append(Dict.components_.reshape((C, K, K, 1)))
 
         # Concatenate the list of individual kernels into a ndarry.
         Kernels = np.concatenate(Kernels_list, axis=3)
 
-        # Convert ndarray of kernels into a tensor.
+        # Convert ndarray of kernels into a tensor. Load using the same datatype 
+        # and device as the Samples these kernels will convolve
+        Kernels_tensor = torch.tensor(Kernels,dtype=Samples.dtype,device=Samples.device)
         # Must also reorder so that it follows the NCHW format of tensors.
-        Kernels_tensor = torch.from_numpy(Kernels).permute(0, 3, 1, 2)
+        Kernels_tensor = Kernels_tensor.permute(0, 3, 1, 2)
+
         if Debug_flag :
             print('Layer ' + str(Layer) + ' Kernels size: ' + str(Kernels_tensor.shape)) 
         
         # Create feature map by convolving over Samples with the filters we made
         # from them.
         Convolve_out = torch.nn.functional.conv2d(Samples, Kernels_tensor)
+        
+        # Normalize feature map according to activation function (ReLU)
+        Convolve_out = torch.nn.functional.relu(Convolve_out)
 
-        # Normalize feature map according to activation function (ReLU), and        
-        # set to Samples for next iteration.
-        Samples = torch.nn.functional.relu(Convolve_out)
+        # Includes max pooling when specified
+        if not M==0:
+            Convolve_out = torch.nn.functional.max_pool2d(Samples, M)
+
+        Samples = Convolve_out
 
         # Append generated filters to return list.
         Filters_output.append(Kernels_tensor)
         
     return Filters_output
 
+def parse_all_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('Sample_space_csv',help='File path of csv containing all the images '\
+      +'that dictionary learning sample will be taken from',type=str)
+    parser.add_argument('Sample_size',type=int,help='Size of the sample taken (int)')
+    parser.add_argument('Sample_path',help='Path to the directory containing all '\
+      +'the sample images',type=str)
+    parser.add_argument("filter_specs",type=str,
+        help="Comma-deliminated list of filter specifications. For each layer, the format is "\
+        + "CxKxM, where C is the number of filters, K is the size of each KxK filter, and M is either "\
+        + "the size of the max-pooling layer, or 0 if not being used")
+    parser.add_argument("save_dir",type=str,
+            help="The directory where the .pt file will be saved")
+    parser.add_argument("-dbg",type=bool,
+            help="Status of the debug flag (bool) [default: False]",default=False)
+    return parser.parse_args()
 
+def save_filters(filters, name, save_dir):
+    files = [f for f in os.listdir(save_dir) if os.path.isfile(os.path.join(save_dir, f))]
+    suffix=".pt"
+    i=-1
+    while name+suffix in files:
+        i+=1
+        suffix="_"+str(i)+".pt"
 
-def main(argv):
-    img1 = cv2.imread('whale1.jpg')  # this reads in bgr format
-    img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2RGB)  # convert from bgr to rgb
-    img2 = cv2.imread('whale2.jpg')  
-    img2 = cv2.cvtColor(img2, cv2.COLOR_BGR2RGB)
+    path = os.path.join(save_dir,name+suffix)
+    torch.save(filters, path)
+
+def main():
+    args = parse_all_args()
+
+    # Get filter specs
+    Filter_specs = parse_filter_specs(args.filter_specs)
+    sample=[]
     
-    Samples = img1.reshape((1,)+img1.shape)
-    Samples = np.append(Samples, img2.reshape((1,)+img1.shape), 0)
-    Samples = Samples.astype('float64') / 255
-    
-    Samples_tensor = torch.from_numpy(Samples)
-    Samples_tensor = Samples_tensor.permute(0, 3, 1, 2)
+    # Make the database lose scope in janky way
+    if True:
+        # Create the sample database
+        sample_set = PrototypicalDataset(args.Sample_path, args.Sample_space_csv, apply_enhancements=False, n_support=1, n_query=0)
 
-    Filter_specs = [[32,5,5],[64,3,3]]
-    #Filter_specs = [[3,3,3],[3,5,5],[10,5,5]]
+        sample_ids=list(range(len(sample_set)))
+        shuffle(sample_ids)
+        sample_ids=sample_ids[:args.Sample_size]
 
-    Filters_list = prepare_dictionaries(Samples_tensor, Filter_specs, Dict_epochs=10, Dict_jobs=-1, Debug_flag=True)
+        # No need for dataloader since MB doesn't exist
+        for i in sample_ids:
+            sample += sample_set[i][2]
 
-    printimg = False
-    if printimg == True :
-        
-        if not os.path.exists('filters'):
-            os.mkdir('filters')
+    # Create a THICK tensor
+    sample=torch.stack(sample)
 
-        for Layer in range(len(Filters_list)) :
+    # Create the filters from this image sample
+    filters = prepare_dictionaries(sample, Filter_specs, Debug_flag=args.dbg)
 
-            Filters_list[Layer] = (Filters_list[Layer].permute(0, 2, 3, 1).numpy() * 255).astype(np.uint8)
+    # Save with a name describing the convolution's structure
+    save_filters(filters, args.filter_specs, args.save_dir)
 
-            for Filter in range(Filters_list[Layer].shape[0]) :
-                cv2.imwrite('filters/f'+str(Layer)+'-'+str(Filter)+'.png', Filters_list[Layer][Filter])
-
-
-            
 if __name__ == "__main__":
-    main(sys.argv)
+    main()

@@ -19,6 +19,7 @@ import argparse
 import sys
 import numpy as np
 from dataset import PrototypicalDataset, protoCollate, ClassDictionary
+from utils import parse_filter_specs
 
 class ConvNeuralNet(torch.nn.Module):
     def __init__(self, embed_dim, f1, image_shape, Filter_specs=None, Pre_trained_filters=None):
@@ -180,14 +181,6 @@ def train(model,train_loader,dev_loader,N,args):
                 train_acc = train_num_correct / query_set.shape[0]
 
                 print("%03d.%04d: train %.3f, dev %.3f" % (epoch,update,train_acc,dev_acc))
-
-def parse_filter_specs(filter_specs):
-    specs = []
-    for layer in filter_specs.split(','):
-        C,K,M=layer.split('x')
-        specs.append([int(C),int(K),int(M)])
-    return specs
-
 
 def main(argv):
     # parse arguments

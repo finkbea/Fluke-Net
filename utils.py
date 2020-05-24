@@ -28,3 +28,15 @@ def calc_AP_5(class_predictions, true_class):
     if not true_class_location is None:
         AP_5 = float(1)/true_class_location
     return AP_5
+
+def parse_filter_specs(filter_specs):
+    """
+    For parsing a filter into its specifications
+    Included here because of the way our pipeline works
+    """
+    specs = []
+    for layer in filter_specs.split(','):
+        C,K,M=layer.split('x')
+        specs.append([int(C),int(K),int(M)])
+    return specs
+
