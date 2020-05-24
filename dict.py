@@ -104,7 +104,7 @@ def prepare_dictionaries (Samples, Filter_specs, Dict_alpha=2, Dict_minibatch_si
 
         # Includes max pooling when specified
         if not M==0:
-            Convolve_out = torch.nn.functional.max_pool2d(Samples, M)
+            Convolve_out = torch.nn.functional.max_pool2d(Convolve_out, M)
 
         Samples = Convolve_out
 
