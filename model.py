@@ -124,25 +124,28 @@ def parse_all_args():
 
     return parser.parse_args()
 
-def distanceFromPrototypes(model, query_set, support_ids, support_map):
-    class_count = len(support_map.keys())
-    mb_size = query_set.shape[0]
+def distanceFromPrototypes(model, query_set, support_set, support_count, query_count):
+    class_count = query_set.shape[0] // query_count
 
-    # this could (should) all probably be parallelized much better once we're tuning things
+    # support_set is (class_count*support_count) x (image dims)
+    # support_embeddings is (class_count*support_count) x embed_dim
+    support_embeddings = model(support_set)
 
-    prototypes = {}
-    for id,class_tensors in support_map.items():
-        prototypes[id] = model(class_tensors).mean(dim=0)
+    # put embeddings for each class's support set into a new dim
+    # then average along the support_set dim to get the prototype embedding for each class
+    prototypes = support_embeddings.reshape(class_count,support_count,-1).mean(dim=1)
 
-    mb_query_embeddings = model(query_set)
+    # repeat prototypes along dim 0; [p1,p2,p3] -> [p1,p2,p3,p1,p2,p3,p1,p2,p3]
+    proto_pairs = prototypes.repeat(class_count * query_count, 1)
 
-    euclid_dist = torch.zeros((mb_size, class_count))
-    for d in range(mb_size):
-        for class_id in range(class_count):
-            # negative because we want to punish high distance and reward low distance
-            euclid_dist[d][class_id] = -torch.dist(mb_query_embeddings[d], prototypes[class_id])
+    # tile query set embeddings along dim 0; [q1,q2,q3] -> [q1,q1,q1,q2,q2,q2,q3,q3,q3]
+    query_embeddings = model(query_set).repeat_interleave(class_count,dim=0)
 
-    return euclid_dist
+    # get distance between each embedding and all prototypes
+    dist = torch.nn.functional.pairwise_distance(query_embeddings, proto_pairs)
+
+    # put each query set element's distance to each prototype set into a new dim
+    return dist.reshape(query_count * class_count,-1)
 
 def train(model,train_loader,dev_loader,N,args):
     criterion = torch.nn.CrossEntropyLoss(reduction='mean')
@@ -150,34 +153,39 @@ def train(model,train_loader,dev_loader,N,args):
 
     for epoch in range(args.epochs):
 
-        for update,(query_set, support_ids, support_map) in enumerate(train_loader):
+        for update,(query_set, support_set, target_ids) in enumerate(train_loader):
 
-            distance = distanceFromPrototypes(model, query_set, support_ids, support_map)
+            distance = distanceFromPrototypes(model, query_set, support_set, args.train_support, args.train_query)
 
-            loss          = criterion(distance,support_ids)
+            loss = criterion(distance, target_ids)
 
             optimizer.zero_grad() # reset the gradient values
             loss.backward()       # compute the gradient values
             optimizer.step()      # apply gradients
 
-            # TODO: Use train prototypes to evaluate the dev set
             if (update % args.report_freq) == 0:
                 # eval on dev once per epoch
                 num_correct = 0
                 num_total = 0
 
-                for _,(dev_query_set, dev_support_ids, dev_support_map) in enumerate(dev_loader):
-                    dev_distance = distanceFromPrototypes(model, dev_query_set, dev_support_ids, dev_support_map)
+                for _,(dev_query_set, dev_support_set, dev_target_ids) in enumerate(dev_loader):
+                    dev_distance = distanceFromPrototypes(model, dev_query_set, dev_support_set, args.dev_support, args.dev_query)
 
                     _,dev_y_pred_i = torch.max(dev_distance,1)
-                    num_correct   += (dev_y_pred_i == dev_support_ids).sum().data.numpy()
+                    cur_correct    = (dev_y_pred_i == dev_target_ids).sum()
+                    if (cur_correct.is_cuda):
+                        cur_correct = cur_correct.cpu()
+                    num_correct   += cur_correct.item()
                     num_total     += dev_query_set.shape[0]
                 dev_acc = num_correct / num_total
 
                 # it's not great that we're comparing one training minibatch to the entire dev set,
                 # but better than nothing
                 _,train_y_pred_i = torch.max(distance,1)
-                train_num_correct = (train_y_pred_i == support_ids).sum().data.numpy()
+                train_cur_correct = (train_y_pred_i == target_ids).sum()
+                if (train_cur_correct.is_cuda):
+                    train_cur_correct = train_cur_correct.cpu()
+                train_num_correct = train_cur_correct.item()
                 train_acc = train_num_correct / query_set.shape[0]
 
                 print("%03d.%04d: train %.3f, dev %.3f" % (epoch,update,train_acc,dev_acc))

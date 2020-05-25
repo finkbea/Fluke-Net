@@ -15,17 +15,19 @@ from torchvision import transforms
 
 def protoCollate(batch):
     queries = []
-    support_ids = []
-    support_map = {}
-    id_counter = 0
+    supports = []
+    target_ids = []
 
-    for b in batch:
+    for i,b in enumerate(batch):
         queries += b[0]
-        support_ids += [ id_counter ] * len(b[0])
-        support_map[id_counter] = b[2]
-        id_counter += 1
+        supports += b[1]
+        target_ids += [ i ] * len(b[0])
 
-    return (torch.stack(queries), torch.tensor(support_ids), support_map)
+    target_ids = torch.tensor(target_ids)
+    if (torch.cuda.is_available()):
+            target_ids = target_ids.cuda()
+
+    return (torch.stack(queries), torch.stack(supports), target_ids)
 
 class PrototypicalDataset(torch.utils.data.Dataset):
 
@@ -78,10 +80,7 @@ class PrototypicalDataset(torch.utils.data.Dataset):
         for _ in range(self.n_query):
             query.append(self.getImageTensor(img_paths.pop()))
 
-        # query/id are turned into input/targed pairs in collate_fn
-        # support is added to a dictionary in collate_fn
-        # pretty hacky
-        return query, id, torch.stack(support)
+        return query, support
 
     def getImageTensor(self, img_path, aggressive=False):
         file = os.path.join(self.image_dir_path, img_path)
