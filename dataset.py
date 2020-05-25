@@ -31,7 +31,7 @@ def protoCollate(batch):
 
 class PrototypicalDataset(torch.utils.data.Dataset):
 
-    def __init__(self, image_dir_path: str, labels_file_path: str, apply_enhancements=True, 
+    def __init__(self, image_dir_path: str, labels_file_path: str, apply_enhancements=True,
                  n_support=1, n_query=1, image_shape=(224,224)):
         """
         Non-Obvious Parameters
@@ -51,6 +51,7 @@ class PrototypicalDataset(torch.utils.data.Dataset):
         self.image_shape = image_shape
         self.image_dir_path = image_dir_path
         self.class_dict = ClassDictionary(labels_file_path)
+        self.img_loader = ImageLoader()
 
         self.n_support = n_support
         self.n_query = n_query
@@ -64,7 +65,7 @@ class PrototypicalDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         'Generates the support and query set for one class in the episode'
         id = self.classes[index]
-        img_paths = self.class_dict.getImages(id)
+        img_paths = self.class_dict.getImagePaths(id)
         shuffle(img_paths)
 
         support = []
@@ -83,10 +84,10 @@ class PrototypicalDataset(torch.utils.data.Dataset):
         return query, support
 
     def getImageTensor(self, img_path, aggressive=False):
-        file = os.path.join(self.image_dir_path, img_path)
+        abs_path = os.path.join(self.image_dir_path, img_path)
 
         # load the image and ensure that it has 3 channels (vs only 1 for grayscale)
-        image = Image.open(file).convert('RGB')
+        image = self.img_loader.loadImage(abs_path)
 
         transform_list = []
         if self.apply_enhancements:
@@ -156,5 +157,23 @@ class ClassDictionary():
     def getClasses(self):
         return self.class_dict.keys()
     
-    def getImages(self, id):
+    def getImagePaths(self, id):
         return self.class_dict[id].copy()
+
+class ImageLoader():
+    def __init__(self, use_cache=False):
+        self.cache = {}
+        self.use_cache = use_cache
+
+    def setUseCache(self, use_cache):
+        self.use_cache = use_cache
+
+    def loadImage(self, path):
+
+        if (not (path in self.cache)):
+            self.cache[path] = Image.open(path).convert('RGB')
+
+        if (self.use_cache == True):
+            return self.cache[path]
+        else:
+            return Image.open(path).convert('RGB')

@@ -18,7 +18,7 @@ import torch
 import argparse
 import sys
 import numpy as np
-from dataset import PrototypicalDataset, protoCollate, ClassDictionary
+from dataset import PrototypicalDataset, protoCollate, ImageLoader
 from utils import parse_filter_specs
 
 class ConvNeuralNet(torch.nn.Module):
@@ -190,6 +190,14 @@ def train(model,train_loader,dev_loader,N,args):
 
                 print("%03d.%04d: train %.3f, dev %.3f" % (epoch,update,train_acc,dev_acc))
 
+        if (epoch == 0):
+            # cache during first epoch, then load from every epoch thereafter
+            # https://discuss.pytorch.org/t/best-practice-to-cache-the-entire-dataset-during-first-epoch/19608/
+            train_loader.dataset.img_loader.setUseCache(True)
+            train_loader.dataset.num_workers=8
+            dev_loader.dataset.img_loader.setUseCache(True)
+            dev_loader.dataset.num_workers=8
+
 def main(argv):
     # parse arguments
     args = parse_all_args()
@@ -199,10 +207,10 @@ def main(argv):
     dev_set = PrototypicalDataset(args.input_path, args.dev_path, apply_enhancements=False, n_support=args.dev_support, n_query=args.dev_query)
 
     train_loader = torch.utils.data.DataLoader(train_set, shuffle=True,
-            drop_last=False, batch_size=args.mb, num_workers=8,
+            drop_last=False, batch_size=args.mb, num_workers=0,
             collate_fn=protoCollate)
     dev_loader = torch.utils.data.DataLoader(dev_set, shuffle=True,
-            drop_last=False, batch_size=args.mb, num_workers=8,
+            drop_last=False, batch_size=args.mb, num_workers=0,
             collate_fn=protoCollate)
     
     torch.multiprocessing.set_start_method("spawn")
