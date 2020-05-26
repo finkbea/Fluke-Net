@@ -32,6 +32,7 @@ class ConvNeuralNet(torch.nn.Module):
         prev_channels = 3
         out_w = image_shape[0]
         out_h = image_shape[1]
+        # C: output channels, K: kernel size, M: max pooling size
         for C,K,M in Filter_specs:
             out_w -= (K-1)
             out_h -= (K-1)
@@ -41,11 +42,10 @@ class ConvNeuralNet(torch.nn.Module):
                 out_w //= M
                 out_h //= M
                 self.pool_list.append(torch.nn.MaxPool2d(M))
+            # Maintain equal list length with identity function
             else:
                 self.pool_list.append(torch.nn.Identity())
 
-        # in the future, I wouldn't do the math to figure out the size of this layer
-        # it's easier to just print the maxpool2 output shape inside the forward fn
         self.dense_hidden = torch.nn.Linear(out_w*out_h*C, 512)
 
         # TODO: Another dense layer? (especially if/when conv filters have fixed params)
@@ -55,7 +55,7 @@ class ConvNeuralNet(torch.nn.Module):
         if not Pre_trained_filters is None :
             # If we have pre-trained filters, set our weights to them.
             for conv,filter in zip(self.conv_list,Pre_trained_filters):
-                conv.weight = filter
+                conv.weight.data = filter
             
         for name, param in self.named_parameters():
             print(name,param.data.shape)
@@ -67,8 +67,6 @@ class ConvNeuralNet(torch.nn.Module):
             x = conv(x)
             x = self.F(x)
             x = pool(x)
-
-        # print(x.shape)
 
         x = x.view(x.size(0), -1) # flatten into vector
 
@@ -108,7 +106,7 @@ def parse_all_args():
             help="The number of dimensions in the embedding space (int) [default: 100]",default=100)
 
     parser.add_argument("-pre_trained",type=str,
-            help="The directory of the .pt file that contains a list of convolutions. Must match filter"\
+            help="The directory of the .pt file that contains a list of convolutions. Must either match or prepend filter"\
             +" specs (optional)",default=None)
     parser.add_argument("-save_embed_graph",type=bool,
             help="Whether a graph of the dev set embeddings should be saved during each stat log step (optional)",default=False)
@@ -226,8 +224,16 @@ def main(argv):
 
     Filter_specs = parse_filter_specs(args.filter_specs)
     Pre_trained_filters = None
+
     if not args.pre_trained is None:
-        pass # TODO: DO
+        Pre_trained_filters = torch.load(args.pre_trained)
+
+        # Validate that overlapping portions of Filter_specs and Pre_trained_filters match
+        for (spec_channels,spec_kernel,_),filter_weights in zip(Filter_specs, Pre_trained_filters):
+            channels_out,channels_in,kernel,_ = filter_weights.shape
+            assert(spec_kernel == kernel)
+            assert(spec_channels == channels_out)
+            prev_channels_out = channels_out
     
     model = ConvNeuralNet(args.embed_dim, args.f1, train_set.image_shape, Filter_specs=Filter_specs, Pre_trained_filters=Pre_trained_filters)
     if (torch.cuda.is_available()):
@@ -235,7 +241,6 @@ def main(argv):
 
     N = len(train_set)
     train(model,train_loader,dev_loader,N,args)
-
 
 if __name__ == "__main__":
     main(sys.argv)
