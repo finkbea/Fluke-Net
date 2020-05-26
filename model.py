@@ -143,7 +143,7 @@ def distanceFromPrototypes(model, query_set, support_set, support_count, query_c
     query_pairs = query_embeddings.repeat_interleave(class_count,dim=0)
 
     # get distance between each embedding and all prototypes
-    dist = torch.nn.functional.pairwise_distance(query_pairs, proto_pairs)
+    dist = -torch.nn.functional.pairwise_distance(query_pairs, proto_pairs)
 
     # put each query set element's distance to each prototype set into a new dim
     return query_embeddings,dist.reshape(query_count * class_count,-1)
