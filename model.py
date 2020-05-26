@@ -19,7 +19,7 @@ import argparse
 import sys
 import numpy as np
 from dataset import PrototypicalDataset, protoCollate, ImageLoader
-from utils import parse_filter_specs
+from utils import parse_filter_specs, visualize_embeddings
 
 class ConvNeuralNet(torch.nn.Module):
     def __init__(self, embed_dim, f1, image_shape, Filter_specs=None, Pre_trained_filters=None):
@@ -110,6 +110,8 @@ def parse_all_args():
     parser.add_argument("-pre_trained",type=str,
             help="The directory of the .pt file that contains a list of convolutions. Must match filter"\
             +" specs (optional)",default=None)
+    parser.add_argument("-save_embed_graph",type=bool,
+            help="Whether a graph of the dev set embeddings should be saved during each stat log step (optional)",default=False)
 
     # these should be read from the input csv, but this is fine for now
     parser.add_argument("-train_support",type=int,\
@@ -139,13 +141,14 @@ def distanceFromPrototypes(model, query_set, support_set, support_count, query_c
     proto_pairs = prototypes.repeat(class_count * query_count, 1)
 
     # tile query set embeddings along dim 0; [q1,q2,q3] -> [q1,q1,q1,q2,q2,q2,q3,q3,q3]
-    query_embeddings = model(query_set).repeat_interleave(class_count,dim=0)
+    query_embeddings = model(query_set)
+    query_pairs = query_embeddings.repeat_interleave(class_count,dim=0)
 
     # get distance between each embedding and all prototypes
-    dist = torch.nn.functional.pairwise_distance(query_embeddings, proto_pairs)
+    dist = torch.nn.functional.pairwise_distance(query_pairs, proto_pairs)
 
     # put each query set element's distance to each prototype set into a new dim
-    return dist.reshape(query_count * class_count,-1)
+    return query_embeddings,dist.reshape(query_count * class_count,-1)
 
 def train(model,train_loader,dev_loader,N,args):
     criterion = torch.nn.CrossEntropyLoss(reduction='mean')
@@ -153,9 +156,9 @@ def train(model,train_loader,dev_loader,N,args):
 
     for epoch in range(args.epochs):
 
-        for update,(query_set, support_set, target_ids) in enumerate(train_loader):
+        for update,(query_set, support_set, target_ids, _) in enumerate(train_loader):
 
-            distance = distanceFromPrototypes(model, query_set, support_set, args.train_support, args.train_query)
+            _,distance = distanceFromPrototypes(model, query_set, support_set, args.train_support, args.train_query)
 
             loss = criterion(distance, target_ids)
 
@@ -168,8 +171,11 @@ def train(model,train_loader,dev_loader,N,args):
                 num_correct = 0
                 num_total = 0
 
-                for _,(dev_query_set, dev_support_set, dev_target_ids) in enumerate(dev_loader):
-                    dev_distance = distanceFromPrototypes(model, dev_query_set, dev_support_set, args.dev_support, args.dev_query)
+                dev_embeddings = []
+
+                for _,(dev_query_set, dev_support_set, dev_target_ids, dev_target_names) in enumerate(dev_loader):
+                    dev_embed,dev_distance = distanceFromPrototypes(model, dev_query_set, dev_support_set, args.dev_support, args.dev_query)
+                    dev_embeddings.append(dev_embed)
 
                     _,dev_y_pred_i = torch.max(dev_distance,1)
                     cur_correct    = (dev_y_pred_i == dev_target_ids).sum()
@@ -178,6 +184,9 @@ def train(model,train_loader,dev_loader,N,args):
                     num_correct   += cur_correct.item()
                     num_total     += dev_query_set.shape[0]
                 dev_acc = num_correct / num_total
+
+                if (args.save_embed_graph):
+                    visualize_embeddings(torch.cat(dev_embeddings), dev_target_names, "%d.%d" % (epoch, update))
 
                 # it's not great that we're comparing one training minibatch to the entire dev set,
                 # but better than nothing

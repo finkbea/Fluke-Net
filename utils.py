@@ -1,4 +1,9 @@
 import csv
+from sklearn.manifold import TSNE
+import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 def calc_AP_5(class_predictions, true_class):
     """
@@ -40,3 +45,28 @@ def parse_filter_specs(filter_specs):
         specs.append([int(C),int(K),int(M)])
     return specs
 
+def visualize_embeddings(embeddings,labels,s):
+    """Plots TSNE embeddings of fluke image embeddings.
+
+    Args:
+        embeddings (torch.Tensor): the embeddings
+        labels (list): the list of length nsamples*N classes
+    """
+
+    unique_labels = np.unique(labels)
+    colors = {label:np.random.rand(3) for label in unique_labels}
+
+    if (embeddings.is_cuda):
+        embeddings = embeddings.cpu()
+
+    # dim reduce
+    low_d = TSNE(n_components=2).fit_transform(embeddings.data.numpy())
+
+    # plot
+    plt.clf()
+    for i,label in enumerate(labels):
+        plt.text(low_d[i,0],low_d[i,1],str(label),color=colors[label],fontsize=12)
+        plt.scatter(low_d[i,0],low_d[i,1],color=colors[label])
+
+    plt.margins(0.1)
+    plt.savefig("%s.pdf" % s)

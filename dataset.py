@@ -17,17 +17,19 @@ def protoCollate(batch):
     queries = []
     supports = []
     target_ids = []
+    target_names = []
 
     for i,b in enumerate(batch):
         queries += b[0]
         supports += b[1]
         target_ids += [ i ] * len(b[0])
+        target_names += [ b[2] ] * len(b[0])
 
     target_ids = torch.tensor(target_ids)
     if (torch.cuda.is_available()):
             target_ids = target_ids.cuda()
 
-    return (torch.stack(queries), torch.stack(supports), target_ids)
+    return (torch.stack(queries), torch.stack(supports), target_ids, target_names)
 
 class PrototypicalDataset(torch.utils.data.Dataset):
 
@@ -81,7 +83,7 @@ class PrototypicalDataset(torch.utils.data.Dataset):
         for _ in range(self.n_query):
             query.append(self.getImageTensor(img_paths.pop()))
 
-        return query, support
+        return query, support, id
 
     def getImageTensor(self, img_path, aggressive=False):
         abs_path = os.path.join(self.image_dir_path, img_path)
