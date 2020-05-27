@@ -56,6 +56,12 @@ class ConvNeuralNet(torch.nn.Module):
             # If we have pre-trained filters, set our weights to them.
             for conv,filter in zip(self.conv_list,Pre_trained_filters):
                 conv.weight.data = filter
+                # If this is a strength based filter, we can also choose to load
+                # the strength values
+                if conv.strength_flag :
+                    #conv.strength.data = STRENGTH
+                    dummy_op = 0
+
             
         for name, param in self.named_parameters():
             print(name,param.data.shape)
