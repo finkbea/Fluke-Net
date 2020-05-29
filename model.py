@@ -133,6 +133,9 @@ def parse_all_args():
 def distanceFromPrototypes(model, query_set, support_set, support_count, query_count):
     class_count = query_set.shape[0] // query_count
 
+    if (torch.cuda.is_available()):
+        support_set = support_set.cuda()
+
     # support_set is (class_count*support_count) x (image dims)
     # support_embeddings is (class_count*support_count) x embed_dim
     support_embeddings = model(support_set)
@@ -144,6 +147,8 @@ def distanceFromPrototypes(model, query_set, support_set, support_count, query_c
     # repeat prototypes along dim 0; [p1,p2,p3] -> [p1,p2,p3,p1,p2,p3,p1,p2,p3]
     proto_pairs = prototypes.repeat(class_count * query_count, 1)
 
+    if (torch.cuda.is_available()):
+        query_set = query_set.cuda()
     # tile query set embeddings along dim 0; [q1,q2,q3] -> [q1,q1,q1,q2,q2,q2,q3,q3,q3]
     query_embeddings = model(query_set)
     query_pairs = query_embeddings.repeat_interleave(class_count,dim=0)
@@ -164,6 +169,8 @@ def train(model,train_loader,dev_loader,N,args):
 
             _,distance = distanceFromPrototypes(model, query_set, support_set, args.train_support, args.train_query)
 
+            if (torch.cuda.is_available()):
+                target_ids = target_ids.cuda()
             loss = criterion(distance, target_ids)
 
             optimizer.zero_grad() # reset the gradient values
@@ -179,8 +186,10 @@ def train(model,train_loader,dev_loader,N,args):
 
                 for _,(dev_query_set, dev_support_set, dev_target_ids, dev_target_names) in enumerate(dev_loader):
                     dev_embed,dev_distance = distanceFromPrototypes(model, dev_query_set, dev_support_set, args.dev_support, args.dev_query)
-                    dev_embeddings.append(dev_embed)
+                    dev_embeddings.append(dev_embed.detach())
 
+                    if (torch.cuda.is_available()):
+                        dev_target_ids = dev_target_ids.cuda()
                     _,dev_y_pred_i = torch.max(dev_distance,1)
                     cur_correct    = (dev_y_pred_i == dev_target_ids).sum()
                     if (cur_correct.is_cuda):
@@ -220,13 +229,13 @@ def main(argv):
     dev_set = PrototypicalDataset(args.input_path, args.dev_path, apply_enhancements=False, n_support=args.dev_support, n_query=args.dev_query)
 
     train_loader = torch.utils.data.DataLoader(train_set, shuffle=True,
-            drop_last=False, batch_size=args.mb, num_workers=0,
+            drop_last=False, batch_size=args.mb, num_workers=0, pin_memory=True,
             collate_fn=protoCollate)
     dev_loader = torch.utils.data.DataLoader(dev_set, shuffle=True,
-            drop_last=False, batch_size=args.mb, num_workers=0,
+            drop_last=False, batch_size=args.mb, num_workers=0, pin_memory=True,
             collate_fn=protoCollate)
     
-    torch.multiprocessing.set_start_method("spawn")
+    # torch.multiprocessing.set_start_method("spawn")
 
     Filter_specs = parse_filter_specs(args.filter_specs)
     Pre_trained_filters = None

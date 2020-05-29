@@ -102,9 +102,6 @@ class PrototypicalDataset(torch.utils.data.Dataset):
         transform = transforms.Compose(transform_list)
         out = transform(image)
 
-        if (torch.cuda.is_available()):
-            out = out.cuda()
-
         return out
 
     def getRandomTransformations(self, image):
