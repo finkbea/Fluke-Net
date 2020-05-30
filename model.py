@@ -20,6 +20,7 @@ import sys
 import numpy as np
 from dataset import PrototypicalDataset, protoCollate, ImageLoader
 from utils import parse_filter_specs, visualize_embeddings
+from strconv2d import StrengthConv2d
 
 class ConvNeuralNet(torch.nn.Module):
     def __init__(self, embed_dim, f1, image_shape, Filter_specs=None, Pre_trained_filters=None):
@@ -36,7 +37,7 @@ class ConvNeuralNet(torch.nn.Module):
         for C,K,M in Filter_specs:
             out_w -= (K-1)
             out_h -= (K-1)
-            self.conv_list.append(torch.nn.Conv2d(prev_channels, C, K))
+            self.conv_list.append(StrengthConv2d(prev_channels, C, K, strength_flag=True))
             prev_channels = C
             if not M == 0:
                 out_w //= M
@@ -56,11 +57,16 @@ class ConvNeuralNet(torch.nn.Module):
             # If we have pre-trained filters, set our weights to them.
             for conv,filter in zip(self.conv_list,Pre_trained_filters):
                 conv.weight.data = filter
+                # In case strength_flag is set to true and requires_grad is also
+                # still true, set it to false
+                if conv.strength_flag and conv.weight.requires_grad :
+                    conv.weight.requires_grad = False
+                """
                 # If this is a strength based filter, we can also choose to load
                 # the strength values
                 if conv.strength_flag :
-                    #conv.strength.data = STRENGTH
-                    dummy_op = 0
+                    conv.strength.data = SOME_STRENGTH
+                """
 
             
         for name, param in self.named_parameters():

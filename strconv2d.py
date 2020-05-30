@@ -49,7 +49,10 @@ class StrengthConv2d(_ConvNd):
 
     def forward(self, input, debug_flags=(False, False, False, False)):
         # If our strength flag is set, we need to multiply all the kernels by
-        # their respective weights before convolution.
+        # their respective weights before convolution. Note, if either of the
+        # debug flags for the strength params are set to true, it will make
+        # copies of them each call to forward. These copies shouldn't persist
+        # long, but it's still a memory and computation overhead.
         if self.strength_flag :
             
             if debug_flags[0] :
