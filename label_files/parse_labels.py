@@ -23,7 +23,7 @@ def parse_labels(logger, args):
         # Read csv and 
         labels = csv.DictReader(labels)
         label_list = filter_images(labels, logger, args)
-        (train,dev,dev_unseen,dev_new_whale) = get_output_rows(label_list, logger, args)
+        (train,dev,test) = get_output_rows(label_list, logger, args)
         
         logger.log("Outputing labels...")
         # Output the rows, maintaing the csv's format
@@ -41,25 +41,12 @@ def parse_labels(logger, args):
                 out.writerow(row)
             logger.log("\t"+str(len(dev)) + " added to dev set")
 
-        if args.dev_unseen_output == "":
-            logger.log("\tdev_unseen_output not specified, skipping "+str(len(dev_unseen)))
-        else:
-            with open(args.dev_unseen_output, "w", newline='') as out:
-                out = csv.DictWriter(out, fieldnames=labels.fieldnames)
-                out.writeheader()
-                for row in dev_unseen:
-                    out.writerow(row)
-                logger.log("\t"+str(len(train)) + " added to dev_unseen set")
-
-        if args.dev_new_whale_output == "":
-            logger.log("\tdev_new_whale_output not specified, skipping "+str(len(dev_new_whale)))
-        else:
-            with open(args.dev_new_whale_output, "w", newline='') as out:
-                out = csv.DictWriter(out, fieldnames=labels.fieldnames)
-                out.writeheader()
-                for row in dev_new_whale:
-                    out.writerow(row)
-                logger.log("\t"+str(len(train)) + " added to dev_new_whale set")
+        with open(args.test_output, "w", newline='') as out:
+            out = csv.DictWriter(out, fieldnames=labels.fieldnames)
+            out.writeheader()
+            for row in test:
+                out.writerow(row)
+            logger.log("\t"+str(len(test)) + " added to test set")
 
 def get_output_rows(labels, logger, args):
     """
@@ -74,47 +61,40 @@ def get_output_rows(labels, logger, args):
             class_ex[row['Id']] = [row]
 
     logger.log("Sorting labels...")
+
     # Remove all new_whale labels
-    dev_new_whale = class_ex.pop("new_whale")
+    class_ex.pop("new_whale")
 
-    train, dev, dev_unseen = [],[],[]
+    train, dev, test = [],[],[]
 
-    # Warning! These are used for logging AND program logic
-    train_classes, dev_classes, dev_unseen_classes = 0, 0, 0
-
-    # Remove unseen classes
+    # Remove classes below example threshold
     for id in list(class_ex):
-        if len(class_ex[id]) < args.train_examples_min:
-            dev_unseen.extend(class_ex.pop(id))
-            dev_unseen_classes += 1
+        if len(class_ex[id]) < args.examples_min:
+            class_ex.pop(id)
 
-    # Randomize class order so dev classes are effectively pulled at random
-    rem = list(class_ex)
-    shuffle(rem)
+    classes = list(class_ex)
+    shuffle(classes)
 
-    targ_dev_classes = int(len(rem)*args.train_dev_split)
-    for id in rem:
-        # Split labels if dev quota not satisfied and minimum dev examples met
-        if dev_classes < targ_dev_classes and len(class_ex[id]) >= args.train_examples_min + args.dev_examples_min:
-            if len(class_ex[id]) >= args.train_examples_min + args.dev_examples_max:
-                dev.extend(class_ex[id][:args.dev_examples_max])
-                train.extend(class_ex[id][args.dev_examples_max:])
-            else:
-                train.extend(class_ex[id][:args.train_examples_min])
-                dev.extend(class_ex[id][args.train_examples_min:])
-            train_classes += 1
-            dev_classes += 1
-        # Otherwise simply add to train labels
-        else:
-            train.extend(class_ex[id])
-            train_classes += 1
+    assert(args.dev_split + args.test_split < 1.0)
 
-    logger.log("\tTrain classes: " + str(train_classes))
+    dev_classes = int(len(classes)*args.dev_split)
+    test_classes = int(len(classes)*args.test_split)
+
+    logger.log("\tTrain classes: " + str(len(classes) - (dev_classes + test_classes)))
     logger.log("\tDev classes: " + str(dev_classes))
-    logger.log("\tUnseen classes: " + str(dev_unseen_classes))
+    logger.log("\tTest classes: " + str(test_classes))
     logger.log("")
 
-    return (train, dev, dev_unseen, dev_new_whale)
+    for _ in range(dev_classes):
+        dev += class_ex[classes.pop()]
+
+    for _ in range(test_classes):
+        test += class_ex[classes.pop()]
+
+    for id in classes:
+        train += class_ex[id]
+
+    return (train, dev, test)
 
 def filter_images(labels, logger, args):
     filtered = []
@@ -126,15 +106,16 @@ def filter_images(labels, logger, args):
     logger.log("Filtering images...")
     for row in labels:
         skip = False
-        if (float(row["AR"]) < args.AR_LT):
-            AR_LT_skipped += 1
-            skip = True
-        elif (float(row["AR"]) > args.AR_UT):
-            AR_UT_skipped += 1
-            skip = True
-        elif (int(row["W"]) < args.Min_Dim or int(row["H"]) < args.Min_Dim):
-            Min_Dim_skipped += 1
-            skip = True
+        if not args.skip_quality_filter:
+            if (float(row["AR"]) < args.AR_LT):
+                AR_LT_skipped += 1
+                skip = True
+            elif (float(row["AR"]) > args.AR_UT):
+                AR_UT_skipped += 1
+                skip = True
+            elif (int(row["W"]) < args.Min_Dim or int(row["H"]) < args.Min_Dim):
+                Min_Dim_skipped += 1
+                skip = True
         
         if not skip:
             filtered.append(row)
@@ -154,25 +135,20 @@ def parse_args():
     # Required args
     parser.add_argument("input_path", type=str, help="The path to the input CSV")
     parser.add_argument("train_output", type=str, help="The path to output the train CSV")
-    parser.add_argument("dev_output", type=str, help="The path to output the dev CSV for seen classes")
-
-    # Optional datasets
-    parser.add_argument("-dev_unseen_output", type=str,
-        help="The path to output the dev CSV for unseen classes (optional)", default="")
-    parser.add_argument("-dev_new_whale_output", type=str,
-        help="The path to output the dev CSV for unseen new_whale classes (optional)", default="")
+    parser.add_argument("dev_output", type=str, help="The path to output the dev CSV")
+    parser.add_argument("test_output", type=str, help="The path to output the test CSV")
 
     # Dataset properties
-    parser.add_argument("-train_dev_split", type=float, 
-        help="The proportion of shared classes from train to dev [default: 0.5]", default=0.5)
-    parser.add_argument("-train_examples_min", type=int,
-        help="The minimum examples per class in the train set [default: 10]", default=10)
-    parser.add_argument("-dev_examples_max", type=int,
-        help="The maximum examples per seen class in the dev set (int) [default: 3]", default=3)
-    parser.add_argument("-dev_examples_min", type=int,
-        help="The minimum examples per seen class in the dev set (int) [default: 2]", default=2)
+    parser.add_argument("-dev_split", type=float, 
+        help="The proportion of classes to go to the dev set [default: 0.125]", default=0.125)
+    parser.add_argument("-test_split", type=float, 
+        help="The proportion of classes to go to the test set [default: 0.125]", default=0.125)
+    parser.add_argument("-examples_min", type=int,
+        help="The minimum examples per class [default: 10]", default=10)
 
     # Image-quality filters
+    parser.add_argument("-skip_quality_filter", type=bool,
+        help="Skip filtering images by quality (bool) [default: False]", default=False)
     parser.add_argument("-AR_LT", type=float, 
         help="A lower threshold for image AR (float) [default: 1.0]", default=1.0)
     parser.add_argument("-AR_UT", type=float, 
