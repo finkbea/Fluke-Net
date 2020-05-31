@@ -17,6 +17,7 @@ For usage, run with the -h flag.
 import torch
 import argparse
 import sys
+import os
 import numpy as np
 from dataset import PrototypicalDataset, protoCollate, ImageLoader
 from strconv2d import StrengthConv2d
@@ -150,6 +151,12 @@ def parse_all_args():
     parser.add_argument("-save_embed_graph",type=bool,
             help="Whether a graph of the dev set embeddings should be saved during each stat log step (optional)",default=False)
 
+    # Saving/loading args
+    parser.add_argument("-checkpoint_path",type=str,
+            help="Path to a file containing a model parameter checkpoint to be loaded (int)",default=None)
+    parser.add_argument("-checkpoint_freq",type=int,
+            help="The number of epochs between each model parameter checkpoint (int)",default=-1)
+
     return parser.parse_args()
 
 def distanceFromPrototypes(model, query_set, support_set, support_count, query_count):
@@ -230,6 +237,11 @@ def train(model,train_loader,dev_loader,train_out,dev_out,N,args):
                 if (args.save_embed_graph):
                     visualize_embeddings(torch.cat(dev_embeddings), dev_target_names, "%d.%d" % (epoch, update))
 
+        if ((args.checkpoint_freq > 0) and (epoch % args.checkpoint_freq == 0)):
+            out_path = os.path.join(args.out_path, 'checkpoint_%d.pt' % (epoch))
+            torch.save(model.state_dict(), out_path)
+            print('Saved checkpoint at epoch %d to %s' % (epoch, out_path))
+
         if (epoch == 0):
             # cache during first epoch, then load from every epoch thereafter
             # https://discuss.pytorch.org/t/best-practice-to-cache-the-entire-dataset-during-first-epoch/19608/
@@ -277,8 +289,14 @@ def main(argv):
             prev_channels_out = channels_out
     
     model = ConvNeuralNet(args.embed_dim, args.f1, train_set.image_shape, Filter_specs=Filter_specs, Pre_trained_filters=Pre_trained_filters)
-    if (torch.cuda.is_available()):
-        model = model.cuda()
+    if (args.checkpoint_path):
+        state = torch.load(args.checkpoint_path);
+        model.load_state_dict(state)
+        print("Loaded checkpoint %s" % (args.checkpoint_path))
+        # torch saves the device the model was on, so we don't need to re-load to CUDA if it was saved from CUDA
+    else:
+        if (torch.cuda.is_available()):
+            model = model.cuda()
 
     train_out = AggregatePerformanceRecord("train",args.out_path,dbg=args.print_reports)
     dev_out = AggregatePerformanceRecord("dev",args.out_path,dbg=args.print_reports)
