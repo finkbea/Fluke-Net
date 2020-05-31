@@ -32,7 +32,7 @@ def prepare_dictionaries (Samples, Filter_specs, Dict_alpha=2, Dict_minibatch_si
     
     Filters_output = []
 
-    for Layer,(C,K,M) in enumerate(Filter_specs):
+    for Layer,(C,K,M,_) in enumerate(Filter_specs):
         if Debug_flag :
             print('Layer ' + str(Layer) + ' Samples size: ' + str(Samples.shape))
         
@@ -159,7 +159,7 @@ def main():
 
         # No need for dataloader since MB doesn't exist
         for i in sample_ids:
-            sample += sample_set[i][2]
+            sample += sample_set[i][1]
 
     # Create a THICK tensor
     sample=torch.stack(sample)

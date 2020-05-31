@@ -138,4 +138,5 @@ whales/**/*
 **/.condor_jobs/**/*
 job_startup_scripts/**/*
 pretrained_kernels/**/*
-
+model_out/**/*
+.nfs*
