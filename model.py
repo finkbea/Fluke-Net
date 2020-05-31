@@ -34,7 +34,7 @@ class ConvNeuralNet(torch.nn.Module):
         out_w = image_shape[0]
         out_h = image_shape[1]
         # C: output channels, K: kernel size, M: max pooling size
-        for C,K,M in Filter_specs:
+        for C,K,M,T in Filter_specs:
             out_w -= (K-1)
             out_h -= (K-1)
             self.conv_list.append(StrengthConv2d(prev_channels, C, K, strength_flag=True))
@@ -42,12 +42,18 @@ class ConvNeuralNet(torch.nn.Module):
             if not M == 0:
                 out_w //= M
                 out_h //= M
-                self.pool_list.append(torch.nn.MaxPool2d(M))
+                if (T == 'avg'):
+                    self.pool_list.append(torch.nn.AvgPool2d(M))
+                elif (T == 'max'):
+                    self.pool_list.append(torch.nn.MaxPool2d(M))
             # Maintain equal list length with identity function
             else:
                 self.pool_list.append(torch.nn.Identity())
 
+        self.batch2d = torch.nn.BatchNorm2d(Filter_specs[0][0])
+
         self.dense_hidden = torch.nn.Linear(out_w*out_h*C, 512)
+        self.drop = torch.nn.Dropout(p=0.5)
 
         # TODO: Another dense layer? (especially if/when conv filters have fixed params)
 
@@ -75,8 +81,10 @@ class ConvNeuralNet(torch.nn.Module):
     def forward(self, x):
         'Takes a Tensor of input data and return a Tensor of output data.'
 
-        for conv,pool in zip(self.conv_list, self.pool_list):
+        for i,(conv,pool) in enumerate(zip(self.conv_list, self.pool_list)):
             x = conv(x)
+            if (i == 0):
+                x = self.batch2d(x)
             x = self.F(x)
             x = pool(x)
 
@@ -84,6 +92,8 @@ class ConvNeuralNet(torch.nn.Module):
 
         x = self.dense_hidden(x)
         x = self.F(x)
+
+        x = self.drop(x)
 
         x = self.embed(x)
 
@@ -147,6 +157,7 @@ def distanceFromPrototypes(model, query_set, support_set, support_count, query_c
 
     if (torch.cuda.is_available()):
         support_set = support_set.cuda()
+        query_set = query_set.cuda()
 
     # support_set is (class_count*support_count) x (image dims)
     # support_embeddings is (class_count*support_count) x embed_dim
@@ -159,8 +170,6 @@ def distanceFromPrototypes(model, query_set, support_set, support_count, query_c
     # repeat prototypes along dim 0; [p1,p2,p3] -> [p1,p2,p3,p1,p2,p3,p1,p2,p3]
     proto_pairs = prototypes.repeat(class_count * query_count, 1)
 
-    if (torch.cuda.is_available()):
-        query_set = query_set.cuda()
     # tile query set embeddings along dim 0; [q1,q2,q3] -> [q1,q1,q1,q2,q2,q2,q3,q3,q3]
     query_embeddings = model(query_set)
     query_pairs = query_embeddings.repeat_interleave(class_count,dim=0)
@@ -200,7 +209,7 @@ def train(model,train_loader,dev_loader,train_out,dev_out,N,args):
 
             # Reporting for train set
             if (update % args.train_report_interval) == 0:
-                train_out.add_record(get_episode_accuracy(distance, target_ids))
+                train_out.add_record(get_episode_accuracy(distance, target_ids), loss.item())
                 if len(train_out) == args.train_report_freq:
                     train_out.write_record_buffer(reported_epoch)
 
@@ -230,6 +239,7 @@ def train(model,train_loader,dev_loader,train_out,dev_out,N,args):
             dev_loader.dataset.num_workers=8
 
 def evaluate_test(model, test_loader, test_out, args):
+    model.eval() # switch to eval mode to disable dropout
     for i,(query_set,support_set,target_ids,_) in enumerate(test_loader):
         _,distance = distanceFromPrototypes(model, query_set, support_set, args.support, args.query)
 
@@ -283,7 +293,8 @@ def main(argv):
             drop_last=False, batch_size=args.mb, num_workers=0, pin_memory=True,
             collate_fn=protoCollate)
     
-    evaluate_test(model, test_loader, test_out, args)
+    # we should make sure this fn works, but we should not run this on the actual test set even once before we are completely done training
+    # evaluate_test(model, test_loader, test_out, args)
 
 if __name__ == "__main__":
     main(sys.argv)

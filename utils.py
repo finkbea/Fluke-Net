@@ -1,5 +1,6 @@
 import os
 import csv
+import re
 from statistics import mean, stdev
 #from sklearn.manifold import TSNE
 import numpy as np
@@ -42,10 +43,18 @@ def parse_filter_specs(filter_specs):
     For parsing a filter into its specifications
     Included here because of the way our pipeline works
     """
+    pool_args_re = re.compile('(\\d+)x(\\d+)x(\\d+)(avg|max)?$', re.IGNORECASE)
     specs = []
     for layer in filter_specs.split(','):
-        C,K,M=layer.split('x')
-        specs.append([int(C),int(K),int(M)])
+
+        pool_args = pool_args_re.search(layer)
+        if (pool_args == None):
+            raise Exception('Invalid layer specs: ' + layer)
+
+        C,K,M,T = pool_args.groups()
+        T = T or 'max'
+
+        specs.append([int(C),int(K),int(M),T])
     return specs
 
 def visualize_embeddings(embeddings,labels,s):
@@ -121,27 +130,31 @@ class AggregatePerformanceRecord():
         path = os.path.join(out_path,name+suffix)
 
         # Create csv writter
-        self.fieldnames = ["curr_epoch", "episodes", "avg_acc", "std_dev"]
+        self.fieldnames = ["curr_epoch", "episodes", "loss", "avg_acc", "std_dev"]
         self.eval_file = open(path, "w", newline='')
         self.eval_file = csv.DictWriter(self.eval_file, fieldnames=self.fieldnames)
         self.eval_file.writeheader()
 
-        self.buffer = []
+        self.acc_buffer = []
+        self.loss_buffer = []
 
     def __len__(self):
-        return len(self.buffer)
+        return len(self.acc_buffer)
 
-    def add_record(self, acc):
-        self.buffer.append(acc)
+    def add_record(self, acc, loss=None):
+        self.acc_buffer.append(acc)
+        self.loss_buffer.append(loss)
 
     def write_record_buffer(self, curr_epoch):
         row = {}
         row["curr_epoch"] = curr_epoch
-        row["episodes"] = len(self.buffer)
-        row["avg_acc"] = mean(self.buffer)
-        row["std_dev"] = stdev(self.buffer)
+        row["episodes"] = len(self.acc_buffer)
+        row["loss"] = ('%.4f' % self.loss_buffer[-1]) if self.loss_buffer[-1] else 'N/A'
+        row["avg_acc"] = mean(self.acc_buffer)
+        row["std_dev"] = stdev(self.acc_buffer)
         self.eval_file.writerow(row)
         if self.dbg:
-            print("{}: curr_epoch {:.2f}, episodes {}, avg_acc {:.4f}, std_dev {:.4f}".format(self.name, row["curr_epoch"], row["episodes"], row["avg_acc"], row["std_dev"]))
-        self.buffer = []
+            print("{}: curr_epoch {:.2f}, episodes {}, loss {:s}, avg_acc {:.4f}, std_dev {:.4f}".format(self.name, row["curr_epoch"], row["episodes"], row["loss"], row["avg_acc"], row["std_dev"]))
+        self.acc_buffer = []
+        self.loss_buffer = []
 
