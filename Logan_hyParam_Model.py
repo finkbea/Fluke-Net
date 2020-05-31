@@ -19,10 +19,13 @@ import argparse
 import sys
 import os
 import numpy as np
-from dataset import PrototypicalDataset, protoCollate, ImageLoader
+from dataset1 import PrototypicalDataset, protoCollate, ImageLoader
 from strconv2d import StrengthConv2d
 from utils import parse_filter_specs, visualize_embeddings, PerformanceRecord, AggregatePerformanceRecord
 import chocolate as choco
+import seaborn as sns; sns.set()
+import matplotlib.pyplot as plt
+import pandas as pd
 
 class ConvNeuralNet(torch.nn.Module):
     def __init__(self, embed_dim, f1, image_shape, Filter_specs=None, Pre_trained_filters=None):
@@ -196,9 +199,9 @@ def get_episode_accuracy(distance, target_ids):
     acc = num_correct.item() / target_ids.shape[0] # jank but the math works out
     return acc
 
-def train(model,train_loader,dev_loader,train_out,dev_out,N,args,params):
+def train(model,train_loader,dev_loader,train_out,dev_out,N,args,**params):
     criterion = torch.nn.CrossEntropyLoss(reduction='mean')
-    optimizer = torch.optim.Adadelta(model.parameters(), lr=params[lr])
+    optimizer = torch.optim.Adadelta(model.parameters(), params.get('lr'))
 
     averageLoss = []
     for epoch in range(args.epochs):
@@ -271,9 +274,9 @@ def main(argv):
     ''''''
     #Chocolate Code
     # Define the conditional search space 
-    space = [
-                {"condition": 1, "lr": choco.uniform(low=.001, high=.1)}
-            ]
+    space = {
+                "lr": choco.uniform(low=.001, high=.1)
+            }
 
     # Establish a connection to a SQLite local database
     conn = choco.SQLiteConnection("sqlite:///hpTuning.db")
@@ -320,7 +323,7 @@ def main(argv):
     N = len(train_set)
     # Calculate the loss for the sampled point (minimized)
     # This would be your training code
-    loss = train(model,train_loader,dev_loader,train_out,dev_out,N,**params)
+    loss = train(model,train_loader,dev_loader,train_out,dev_out,N,args,**params)
 
     # Add the loss to the database
     sampler.update(token, loss)
@@ -334,5 +337,16 @@ def main(argv):
     # # we should make sure this fn works, but we should not run this on the actual test set even once before we are completely done training
     # # evaluate_test(model, test_loader, test_out, args)
 
+def readTune():
+    # Establish a connection to a SQLite local database
+    conn = choco.SQLiteConnection("sqlite:///hpTuning.db")
+    results = conn.results_as_dataframe()
+    results = pd.melt(results, id_vars=["loss"], value_name='value', var_name="variable")
+
+    sns.lmplot(x="value", y="loss", data=results, col="variable", col_wrap=3, sharex=False)
+
+    plt.show()
+
 if __name__ == "__main__":
     main(sys.argv)
+    readTune()
