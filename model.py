@@ -280,13 +280,6 @@ def main(argv):
     Pre_trained_filters = None
     if not args.pre_trained is None:
         Pre_trained_filters = torch.load(args.pre_trained)
-
-        # Validate that overlapping portions of Filter_specs and Pre_trained_filters match
-        for (spec_channels,spec_kernel,_),filter_weights in zip(Filter_specs, Pre_trained_filters):
-            channels_out,channels_in,kernel,_ = filter_weights.shape
-            assert(spec_kernel == kernel)
-            assert(spec_channels == channels_out)
-            prev_channels_out = channels_out
     
     model = ConvNeuralNet(args.embed_dim, args.f1, train_set.image_shape, Filter_specs=Filter_specs, Pre_trained_filters=Pre_trained_filters)
     if (args.checkpoint_path):
