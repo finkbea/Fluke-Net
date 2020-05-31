@@ -26,8 +26,6 @@ def protoCollate(batch):
         target_names += [ b[2] ] * len(b[0])
 
     target_ids = torch.tensor(target_ids)
-    if (torch.cuda.is_available()):
-            target_ids = target_ids.cuda()
 
     return (torch.stack(queries), torch.stack(supports), target_ids, target_names)
 
