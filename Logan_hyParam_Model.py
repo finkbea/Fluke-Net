@@ -19,7 +19,7 @@ import argparse
 import sys
 import os
 import numpy as np
-from dataset1 import PrototypicalDataset, protoCollate, ImageLoader
+from protoDataset import PrototypicalDataset, protoCollate, ImageLoader
 from strconv2d import StrengthConv2d
 from utils import parse_filter_specs, visualize_embeddings, PerformanceRecord, AggregatePerformanceRecord
 import chocolate as choco
@@ -272,34 +272,11 @@ def readTune():
     results = conn.results_as_dataframe()
     results = pd.melt(results, id_vars=["_loss"], value_name='value', var_name="variable")
 
-    sns.lmplot(x="value", y="loss", data=results, col="variable", col_wrap=3, sharex=False)
+    sns.lmplot(x="value", y="_loss", data=results, col="variable", col_wrap=3, sharex=False)
 
     plt.show()
 
-def blackBoxfcn(**params):
-
-
-def main(argv):
-    # parse arguments
-    args = parse_all_args()
-
-    ''''''
-    #Chocolate Code
-    # Define the conditional search space 
-    space = {
-                "lr": choco.uniform(low=.001, high=.1)
-            }
-
-    # Establish a connection to a SQLite local database
-    conn = choco.SQLiteConnection("sqlite:///hpTuning.db")
-
-    # Construct the optimizer
-    sampler = choco.Bayes(conn, space)
-
-    # Sample the next point
-    token, params = sampler.next()
-    ''''''
-
+def blackBoxfcn(args,**params):
     train_set = PrototypicalDataset(args.input_path, args.train_path, n_support=args.support, 
             n_query=args.query)
     dev_set = PrototypicalDataset(args.input_path, args.dev_path, apply_enhancements=False, 
@@ -336,6 +313,28 @@ def main(argv):
     # Calculate the loss for the sampled point (minimized)
     # This would be your training code
     loss = train(model,train_loader,dev_loader,train_out,dev_out,N,args,**params)
+    return loss
+
+def main(argv):
+    # parse arguments
+    args = parse_all_args()
+
+    #Chocolate Code
+    # Define the parameters to tune
+    space = {
+                "lr": choco.uniform(low=.001, high=.1)
+            }
+
+    # Establish a connection to a SQLite local database
+    conn = choco.SQLiteConnection("sqlite:///hpTuning.db")
+
+    # Construct the optimizer
+    sampler = choco.Bayes(conn, space)
+
+    # Sample the next point
+    token, params = sampler.next()
+
+    loss = blackBoxfcn(args,**params)
 
     # Add the loss to the database
     sampler.update(token, loss)
