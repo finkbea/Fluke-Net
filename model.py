@@ -286,10 +286,8 @@ def main(argv):
         state = torch.load(args.checkpoint_path);
         model.load_state_dict(state)
         print("Loaded checkpoint %s" % (args.checkpoint_path))
-        # torch saves the device the model was on, so we don't need to re-load to CUDA if it was saved from CUDA
-    else:
-        if (torch.cuda.is_available()):
-            model = model.cuda()
+    if (torch.cuda.is_available()):
+        model = model.cuda()
 
     train_out = AggregatePerformanceRecord("train",args.out_path,dbg=args.print_reports)
     dev_out = AggregatePerformanceRecord("dev",args.out_path,dbg=args.print_reports)

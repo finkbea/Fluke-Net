@@ -10,7 +10,7 @@ import sklearn.feature_extraction as skfe
 import torch
 import argparse
 from utils import parse_filter_specs
-from dataset import PrototypicalDataset
+from protoDataset import PrototypicalDataset
 from random import shuffle
 
 def prepare_dictionaries (Samples, Filter_specs, Dict_alpha=2, Dict_minibatch_size=5, Dict_epochs=1, Dict_jobs=1, Debug_flag=False) :
@@ -113,23 +113,6 @@ def prepare_dictionaries (Samples, Filter_specs, Dict_alpha=2, Dict_minibatch_si
         
     return Filters_output
 
-def parse_all_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('Sample_space_csv',help='File path of csv containing all the images '\
-      +'that dictionary learning sample will be taken from',type=str)
-    parser.add_argument('Sample_size',type=int,help='Size of the sample taken (int)')
-    parser.add_argument('Sample_path',help='Path to the directory containing all '\
-      +'the sample images',type=str)
-    parser.add_argument("filter_specs",type=str,
-        help="Comma-deliminated list of filter specifications. For each layer, the format is "\
-        + "CxKxM, where C is the number of filters, K is the size of each KxK filter, and M is either "\
-        + "the size of the max-pooling layer, or 0 if not being used")
-    parser.add_argument("save_dir",type=str,
-            help="The directory where the .pt file will be saved")
-    parser.add_argument("-dbg",type=bool,
-            help="Status of the debug flag (bool) [default: False]",default=False)
-    return parser.parse_args()
-
 def save_filters(filters, name, save_dir):
     files = [f for f in os.listdir(save_dir) if os.path.isfile(os.path.join(save_dir, f))]
     suffix=".pt"
@@ -140,22 +123,21 @@ def save_filters(filters, name, save_dir):
 
     path = os.path.join(save_dir,name+suffix)
     torch.save(filters, path)
+    return path
 
-def main():
-    args = parse_all_args()
-
+def make_dicts(filter_specs, Sample_size, Sample_path, Sample_space_csv, save_dir):
     # Get filter specs
-    Filter_specs = parse_filter_specs(args.filter_specs)
+    Filter_specs = parse_filter_specs(filter_specs)
     sample=[]
     
     # Make the database lose scope in janky way
     if True:
         # Create the sample database
-        sample_set = PrototypicalDataset(args.Sample_path, args.Sample_space_csv, apply_enhancements=False, n_support=1, n_query=0)
+        sample_set = PrototypicalDataset(Sample_path, Sample_space_csv, apply_enhancements=False, n_support=1, n_query=0)
 
         sample_ids=list(range(len(sample_set)))
         shuffle(sample_ids)
-        sample_ids=sample_ids[:args.Sample_size]
+        sample_ids=sample_ids[:Sample_size]
 
         # No need for dataloader since MB doesn't exist
         for i in sample_ids:
@@ -165,10 +147,11 @@ def main():
     sample=torch.stack(sample)
 
     # Create the filters from this image sample
-    filters = prepare_dictionaries(sample, Filter_specs, Debug_flag=args.dbg)
+    filters = prepare_dictionaries(sample, Filter_specs, Debug_flag=True)
 
     # Save with a name describing the convolution's structure
-    save_filters(filters, args.filter_specs, args.save_dir)
+    path = save_filters(filters, filter_specs, save_dir)
+    return path
 
 if __name__ == "__main__":
     main()

@@ -23,9 +23,9 @@ from protoDataset import PrototypicalDataset, protoCollate, ImageLoader
 from strconv2d import StrengthConv2d
 from utils import parse_filter_specs, visualize_embeddings, PerformanceRecord, AggregatePerformanceRecord
 import chocolate as choco
-import seaborn as sns; sns.set()
 import matplotlib.pyplot as plt
 import pandas as pd
+from dict_by_a_different_name import make_dicts
 
 class ConvNeuralNet(torch.nn.Module):
     def __init__(self, embed_dim, f1, image_shape, Filter_specs=None, Pre_trained_filters=None):
@@ -114,11 +114,8 @@ def parse_all_args():
     parser.add_argument("train_path",help="The training set input/target data (csv)")
     parser.add_argument("dev_path",help="The development set input/target data (csv)")
     parser.add_argument("test_path",help="The test set input/target data (csv)")
+    parser.add_argument("dict_sample_space_csv")
     parser.add_argument("out_path",help="The path for all of our model evaluations (directory)")
-    parser.add_argument("filter_specs",type=str,
-            help="Comma-deliminated list of filter specifications. For each layer, the format is "\
-            + "CxKxM, where C is the number of filters, K is the size of each KxK filter, and M is either "\
-            + "the size of the max-pooling layer, or 0 if not being used")
     
     # General architecture parameters
     parser.add_argument("-f1",choices=["relu", "tanh", "sigmoid"],\
@@ -160,6 +157,8 @@ def parse_all_args():
             help="Path to a file containing a model parameter checkpoint to be loaded (int)",default=None)
     parser.add_argument("-checkpoint_freq",type=int,
             help="The number of epochs between each model parameter checkpoint (int)",default=-1)
+
+    parser.add_argument("-dict_sample_size",default=50)
 
     return parser.parse_args()
 
@@ -214,7 +213,7 @@ def train(model,train_loader,dev_loader,train_out,dev_out,N,args,**params):
             loss = criterion(distance, target_ids)
             averageLoss.append(loss.item())
 
-            optimizer.zero_grad() # reset the gradient values
+            optimizer.zero_grad() # reset the gradient valuedict_out.csvs
             loss.backward()       # compute the gradient values
             optimizer.step()      # apply gradients
 
@@ -248,6 +247,7 @@ def train(model,train_loader,dev_loader,train_out,dev_out,N,args,**params):
         #     torch.save(model.state_dict(), out_path)
         #     print('Saved checkpoint at epoch %d to %s' % (epoch, out_path))
 
+            print(reported_epoch)
         if (epoch == 0):
             # cache during first epoch, then load from every epoch thereafter
             # https://discuss.pytorch.org/t/best-practice-to-cache-the-entire-dataset-during-first-epoch/19608/
@@ -266,6 +266,7 @@ def evaluate_test(model, test_loader, test_out, args):
             target_ids = target_ids.cuda()
         test_out.write_record(i,get_episode_accuracy(distance,target_ids))
 
+"""
 def readTune():
     # Establish a connection to a SQLite local database
     conn = choco.SQLiteConnection("sqlite:///hpTuning.db")
@@ -275,8 +276,14 @@ def readTune():
     sns.lmplot(x="value", y="_loss", data=results, col="variable", col_wrap=3, sharex=False)
 
     plt.show()
+"""
 
 def blackBoxfcn(args,**params):
+    Pre_trained_filters = None
+    if params["pretrained"]:
+        Pre_trained_filters = torch.load(make_dicts(params["filter_specs"], args.dict_sample_size, args.input_path, args.dict_sample_space_csv, args.out_path))
+        
+
     train_set = PrototypicalDataset(args.input_path, args.train_path, n_support=args.support, 
             n_query=args.query,image_shape=params.get('image size'),apply_enhancements=params.get('enhancements?'))
     dev_set = PrototypicalDataset(args.input_path, args.dev_path, apply_enhancements=params.get('enhancements?'), 
@@ -290,10 +297,7 @@ def blackBoxfcn(args,**params):
             drop_last=False, batch_size=params.get('mb'), num_workers=0, pin_memory=True,
             collate_fn=protoCollate)
 
-    Filter_specs = parse_filter_specs(args.filter_specs)
-    Pre_trained_filters = None
-    if not args.pre_trained is None:
-        Pre_trained_filters = torch.load(args.pre_trained)
+    Filter_specs = parse_filter_specs(params["filter_specs"])
     
     model = ConvNeuralNet(args.embed_dim, args.f1, train_set.image_shape, Filter_specs=Filter_specs, Pre_trained_filters=Pre_trained_filters)
     if (args.checkpoint_path):
@@ -315,9 +319,15 @@ def blackBoxfcn(args,**params):
     loss = train(model,train_loader,dev_loader,train_out,dev_out,N,args,**params)
     return loss
 
+def make_specs():
+    return ["32x7x2,64x3x3avg","8x3x2,16x3x2,32x7x4","8x3x2,32x7x2,64x3x3avg",
+            "32x7x2,64x3x3"] 
+
 def main(argv):
     # parse arguments
     args = parse_all_args()
+
+    filter_spec_choices=make_specs()
 
     #Chocolate Code
     # Define the parameters to tune
@@ -325,7 +335,9 @@ def main(argv):
                 "lr": choco.uniform(low=.001, high=.1),
                 "mb": choco.quantized_uniform(low=5, high=35,step=5),
                 "image size": choco.choice([(100,100),(125,125),(150,150),(175,175),(200,200),(224,224)]),
-                "enhancements?": choco.choice([True,False])
+                "enhancements?": choco.choice([True,False]),
+                "filter_specs": choco.choice(filter_spec_choices),
+                "pretrained": choco.choice([True,False])
             }
 
     # Establish a connection to a SQLite local database
@@ -351,7 +363,7 @@ def main(argv):
     # # we should make sure this fn works, but we should not run this on the actual test set even once before we are completely done training
     # # evaluate_test(model, test_loader, test_out, args)
 
-    # readTune()
+    #readTune()
 
 if __name__ == "__main__":
     main(sys.argv)
