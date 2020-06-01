@@ -343,16 +343,17 @@ def main(argv):
     # Establish a connection to a SQLite local database
     conn = choco.SQLiteConnection("sqlite:///hpTuning.db")
 
-    # Construct the optimizer
-    sampler = choco.Bayes(conn, space)
+    for i in range(20):
+        # Construct the optimizer
+        sampler = choco.Bayes(conn, space)
 
-    # Sample the next point
-    token, params = sampler.next()
+        # Sample the next point
+        token, params = sampler.next()
 
-    loss = blackBoxfcn(args,**params)
+        loss = blackBoxfcn(args,**params)
 
-    # Add the loss to the database
-    sampler.update(token, loss)
+        # Add the loss to the database
+        sampler.update(token, loss)
     
     # # Get test set performance
     # test_set = PrototypicalDataset(args.input_path, args.test_path, apply_enhancements=False, n_support=args.support, n_query=args.query)
