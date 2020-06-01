@@ -93,7 +93,7 @@ class ConvNeuralNet(torch.nn.Module):
             x = self.F(x)
             x = pool(x)
 
-        x = x.view(x.size(0), -1) # flatten into vector
+        x = x.reshape(x.size(0), -1) # flatten into vector
 
         x = self.dense_hidden(x)
         x = self.F(x)
@@ -285,16 +285,16 @@ def blackBoxfcn(args,**params):
         
 
     train_set = PrototypicalDataset(args.input_path, args.train_path, n_support=args.support, 
-            n_query=args.query)
+            n_query=args.query,image_shape=params.get('image size'))
     dev_set = PrototypicalDataset(args.input_path, args.dev_path, apply_enhancements=False, 
-            n_support=args.support, n_query=args.query)
+            n_support=args.support, n_query=args.query,image_shape=params.get('image size'))
 
     # Use the same minibatch size to make each dataset use the same episode size
     train_loader = torch.utils.data.DataLoader(train_set, shuffle=True,
-            drop_last=False, batch_size=int(params.get('mb')), num_workers=0, pin_memory=True,
+            drop_last=False, batch_size=params.get('mb'), num_workers=0, pin_memory=True,
             collate_fn=protoCollate)
     dev_loader = torch.utils.data.DataLoader(dev_set, shuffle=True,
-            drop_last=False, batch_size=int(params.get('mb')), num_workers=0, pin_memory=True,
+            drop_last=False, batch_size=params.get('mb'), num_workers=0, pin_memory=True,
             collate_fn=protoCollate)
 
     Filter_specs = parse_filter_specs(params["filter_specs"])
@@ -336,6 +336,7 @@ def main(argv):
                 "mb": choco.uniform(low=5, high=38),
                 "filter_specs": choco.choice(filter_spec_choices),
                 "pretrained": choco.choice([True,False])
+                "image size": choco.choice([(100,100),(125,125),(150,150),(175,175),(200,200),(224,224)])
             }
 
     # Establish a connection to a SQLite local database
