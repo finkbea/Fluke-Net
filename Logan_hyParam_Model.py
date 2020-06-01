@@ -359,7 +359,7 @@ def main(argv):
     out_writer = csv.DictWriter(out, fieldnames=header)
     out_writer.writeheader()
 
-    for i in range(2):
+    for i in range(20):
         # Construct the optimizer
         sampler = choco.Bayes(conn, space)
 
