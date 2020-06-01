@@ -278,8 +278,8 @@ def readTune():
 
 def blackBoxfcn(args,**params):
     train_set = PrototypicalDataset(args.input_path, args.train_path, n_support=args.support, 
-            n_query=args.query,image_shape=params.get('image size'))
-    dev_set = PrototypicalDataset(args.input_path, args.dev_path, apply_enhancements=False, 
+            n_query=args.query,image_shape=params.get('image size'),apply_enhancements=params.get('enhancements?'))
+    dev_set = PrototypicalDataset(args.input_path, args.dev_path, apply_enhancements=params.get('enhancements?'), 
             n_support=args.support, n_query=args.query,image_shape=params.get('image size'))
 
     # Use the same minibatch size to make each dataset use the same episode size
@@ -324,7 +324,8 @@ def main(argv):
     space = {
                 "lr": choco.uniform(low=.001, high=.1),
                 "mb": choco.quantized_uniform(low=5, high=35,step=5),
-                "image size": choco.choice([(100,100),(125,125),(150,150),(175,175),(200,200),(224,224)])
+                "image size": choco.choice([(100,100),(125,125),(150,150),(175,175),(200,200),(224,224)]),
+                "enhancements?": choco.choice([True,False])
             }
 
     # Establish a connection to a SQLite local database
@@ -350,7 +351,7 @@ def main(argv):
     # # we should make sure this fn works, but we should not run this on the actual test set even once before we are completely done training
     # # evaluate_test(model, test_loader, test_out, args)
 
-    readTune()
+    # readTune()
 
 if __name__ == "__main__":
     main(sys.argv)
