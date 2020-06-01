@@ -24,8 +24,10 @@ from strconv2d import StrengthConv2d
 from utils import parse_filter_specs, visualize_embeddings, PerformanceRecord, AggregatePerformanceRecord
 import chocolate as choco
 import matplotlib.pyplot as plt
+import csv
 import pandas as pd
 from dict_by_a_different_name import make_dicts
+from statistics import stdev,mean
 
 class ConvNeuralNet(torch.nn.Module):
     def __init__(self, embed_dim, f1, image_shape, Filter_specs=None, Pre_trained_filters=None):
@@ -203,6 +205,9 @@ def train(model,train_loader,dev_loader,train_out,dev_out,N,args,**params):
     optimizer = torch.optim.Adadelta(model.parameters(), params.get('lr'))
 
     averageLoss = []
+    min_loss=-1
+    min_loss_i=-1
+
     for epoch in range(args.epochs):
         for update,(query_set, support_set, target_ids, _) in enumerate(train_loader):
             # Training
@@ -218,6 +223,9 @@ def train(model,train_loader,dev_loader,train_out,dev_out,N,args,**params):
             optimizer.step()      # apply gradients
 
             reported_epoch = epoch + (update / N)
+            if min_loss == -1 or loss.item() < min_loss:
+                min_loss = loss.item()
+                min_loss_i = reported_epoch
 
             # Reporting for train set
             # if (update % args.train_report_interval) == 0:
@@ -253,9 +261,10 @@ def train(model,train_loader,dev_loader,train_out,dev_out,N,args,**params):
             # https://discuss.pytorch.org/t/best-practice-to-cache-the-entire-dataset-during-first-epoch/19608/
             train_loader.dataset.img_loader.setUseCache(True)
             train_loader.dataset.num_workers=8
-            dev_loader.dataset.img_loader.setUseCache(True)
-            dev_loader.dataset.num_workers=8
-    return (sum(averageLoss)/len(averageLoss))
+            min_loss 
+         #  dev_loader.dataset.img_loader.setUseCache(True)
+         #  dev_loader.dataset.num_workers=8
+    return (mean(averageLoss),stdev(averageLoss),min_loss,min_loss_i)
 
 def evaluate_test(model, test_loader, test_out, args):
     model.eval() # switch to eval mode to disable dropout
@@ -266,17 +275,15 @@ def evaluate_test(model, test_loader, test_out, args):
             target_ids = target_ids.cuda()
         test_out.write_record(i,get_episode_accuracy(distance,target_ids))
 
-"""
-def readTune():
+# def readTune():
     # Establish a connection to a SQLite local database
-    conn = choco.SQLiteConnection("sqlite:///hpTuning.db")
-    results = conn.results_as_dataframe()
-    results = pd.melt(results, id_vars=["_loss"], value_name='value', var_name="variable")
+    # conn = choco.SQLiteConnection("sqlite:///hpTuning.db")
+    # results = conn.results_as_dataframe()
+    # results = pd.melt(results, id_vars=["_loss"], value_name='value', var_name="variable")
 
-    sns.lmplot(x="value", y="_loss", data=results, col="variable", col_wrap=3, sharex=False)
+    # sns.lmplot(x="value", y="_loss", data=results, col="variable", col_wrap=3, sharex=False)
 
-    plt.show()
-"""
+    # plt.show()
 
 def blackBoxfcn(args,**params):
     Pre_trained_filters = None
@@ -286,16 +293,16 @@ def blackBoxfcn(args,**params):
 
     train_set = PrototypicalDataset(args.input_path, args.train_path, n_support=args.support, 
             n_query=args.query,image_shape=params.get('image size'),apply_enhancements=params.get('enhancements?'))
-    dev_set = PrototypicalDataset(args.input_path, args.dev_path, apply_enhancements=params.get('enhancements?'), 
-            n_support=args.support, n_query=args.query,image_shape=params.get('image size'))
+    # dev_set = PrototypicalDataset(args.input_path, args.dev_path, apply_enhancements=params.get('enhancements?'), 
+     #       n_support=args.support, n_query=args.query,image_shape=params.get('image size'))
 
     # Use the same minibatch size to make each dataset use the same episode size
     train_loader = torch.utils.data.DataLoader(train_set, shuffle=True,
             drop_last=False, batch_size=params.get('mb'), num_workers=0, pin_memory=True,
             collate_fn=protoCollate)
-    dev_loader = torch.utils.data.DataLoader(dev_set, shuffle=True,
-            drop_last=False, batch_size=params.get('mb'), num_workers=0, pin_memory=True,
-            collate_fn=protoCollate)
+    # dev_loader = torch.utils.data.DataLoader(dev_set, shuffle=True,
+    #       drop_last=False, batch_size=params.get('mb'), num_workers=0, pin_memory=True,
+    #       collate_fn=protoCollate)
 
     Filter_specs = parse_filter_specs(params["filter_specs"])
     
@@ -309,13 +316,14 @@ def blackBoxfcn(args,**params):
         if (torch.cuda.is_available()):
             model = model.cuda()
 
-    train_out = AggregatePerformanceRecord("train",args.out_path,dbg=args.print_reports)
-    dev_out = AggregatePerformanceRecord("dev",args.out_path,dbg=args.print_reports)
+    # train_out = AggregatePerformanceRecord("train",args.out_path,dbg=args.print_reports)
+    # dev_out = AggregatePerformanceRecord("dev",args.out_path,dbg=args.print_reports)
     # test_out = PerformanceRecord("test",args.out_path,dbg=args.print_reports)
 
-    N = len(train_set)
+    N = len(train_loader)
     # Calculate the loss for the sampled point (minimized)
     # This would be your training code
+    dev_loader,train_out,dev_out = None,None,None
     loss = train(model,train_loader,dev_loader,train_out,dev_out,N,args,**params)
     return loss
 
@@ -343,17 +351,33 @@ def main(argv):
     # Establish a connection to a SQLite local database
     conn = choco.SQLiteConnection("sqlite:///hpTuning.db")
 
-    for i in range(20):
+    out = open(os.path.join(args.out_path, "results.csv"), "w", newline='')
+
+    header=list(space)
+    header.extend(["epochs","avg_loss","std_loss","min_loss","min_loss_epoch"])
+
+    out_writer = csv.DictWriter(out, fieldnames=header)
+    out_writer.writeheader()
+
+    for i in range(2):
         # Construct the optimizer
         sampler = choco.Bayes(conn, space)
 
         # Sample the next point
         token, params = sampler.next()
 
-        loss = blackBoxfcn(args,**params)
+        avg_loss,std_loss,min_loss,min_loss_epoch = blackBoxfcn(args,**params)
+        params["epochs"]   = args.epochs
+        params["avg_loss"] = avg_loss      
+        params["std_loss"] = std_loss
+        params["min_loss"] = min_loss
+        params["min_loss_epoch"] = min_loss_epoch
+        
+        out_writer.writerow(params)
+        out.flush()
 
         # Add the loss to the database
-        sampler.update(token, loss)
+        sampler.update(token, avg_loss)
     
     # # Get test set performance
     # test_set = PrototypicalDataset(args.input_path, args.test_path, apply_enhancements=False, n_support=args.support, n_query=args.query)
