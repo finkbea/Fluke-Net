@@ -284,10 +284,10 @@ def blackBoxfcn(args,**params):
 
     # Use the same minibatch size to make each dataset use the same episode size
     train_loader = torch.utils.data.DataLoader(train_set, shuffle=True,
-            drop_last=False, batch_size=args.mb, num_workers=0, pin_memory=True,
+            drop_last=False, batch_size=int(params.get('mb')), num_workers=0, pin_memory=True,
             collate_fn=protoCollate)
     dev_loader = torch.utils.data.DataLoader(dev_set, shuffle=True,
-            drop_last=False, batch_size=args.mb, num_workers=0, pin_memory=True,
+            drop_last=False, batch_size=int(params.get('mb')), num_workers=0, pin_memory=True,
             collate_fn=protoCollate)
 
     Filter_specs = parse_filter_specs(args.filter_specs)
@@ -322,7 +322,8 @@ def main(argv):
     #Chocolate Code
     # Define the parameters to tune
     space = {
-                "lr": choco.uniform(low=.001, high=.1)
+                "lr": choco.uniform(low=.001, high=.1),
+                "mb": choco.uniform(low=5, high=38)
             }
 
     # Establish a connection to a SQLite local database
