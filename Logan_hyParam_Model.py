@@ -266,6 +266,18 @@ def evaluate_test(model, test_loader, test_out, args):
             target_ids = target_ids.cuda()
         test_out.write_record(i,get_episode_accuracy(distance,target_ids))
 
+def readTune():
+    # Establish a connection to a SQLite local database
+    conn = choco.SQLiteConnection("sqlite:///hpTuning.db")
+    results = conn.results_as_dataframe()
+    results = pd.melt(results, id_vars=["_loss"], value_name='value', var_name="variable")
+
+    sns.lmplot(x="value", y="loss", data=results, col="variable", col_wrap=3, sharex=False)
+
+    plt.show()
+
+def blackBoxfcn(**params):
+
 
 def main(argv):
     # parse arguments
@@ -337,16 +349,7 @@ def main(argv):
     # # we should make sure this fn works, but we should not run this on the actual test set even once before we are completely done training
     # # evaluate_test(model, test_loader, test_out, args)
 
-def readTune():
-    # Establish a connection to a SQLite local database
-    conn = choco.SQLiteConnection("sqlite:///hpTuning.db")
-    results = conn.results_as_dataframe()
-    results = pd.melt(results, id_vars=["loss"], value_name='value', var_name="variable")
-
-    sns.lmplot(x="value", y="loss", data=results, col="variable", col_wrap=3, sharex=False)
-
-    plt.show()
+    readTune()
 
 if __name__ == "__main__":
     main(sys.argv)
-    readTune()
