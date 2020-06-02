@@ -323,7 +323,7 @@ def main(argv):
     N = len(train_set)
     
     
-    temp_train_set = torch.cat(train_set)
+    temp_train_set = torch.cat(train_loader)
     findK(temp_train_set)
     
     #pred = kMeans(temp_train_set, x)
