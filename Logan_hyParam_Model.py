@@ -30,7 +30,7 @@ from dict_by_a_different_name import make_dicts
 from statistics import stdev,mean
 
 class ConvNeuralNet(torch.nn.Module):
-    def __init__(self, embed_dim, f1, image_shape, Filter_specs=None, Pre_trained_filters=None):
+    def __init__(self, embed_dim, f1, image_shape, use_strength, Filter_specs=None, Pre_trained_filters=None):
         super(ConvNeuralNet, self).__init__()
 
         self.F = getattr(torch, f1)
@@ -44,7 +44,7 @@ class ConvNeuralNet(torch.nn.Module):
         for C,K,M,T in Filter_specs:
             out_w -= (K-1)
             out_h -= (K-1)
-            self.conv_list.append(StrengthConv2d(prev_channels, C, K, strength_flag=True))
+            self.conv_list.append(StrengthConv2d(prev_channels, C, K, strength_flag=use_strength))
             prev_channels = C
             if not M == 0:
                 out_w //= M
@@ -74,13 +74,6 @@ class ConvNeuralNet(torch.nn.Module):
                 # still true, set it to false
                 if conv.strength_flag and conv.weight.requires_grad :
                     conv.weight.requires_grad = False
-                """
-                # If this is a strength based filter, we can also choose to load
-                # the strength values
-                if conv.strength_flag :
-                    conv.strength.data = SOME_STRENGTH
-                """
-
             
         for name, param in self.named_parameters():
             print(name,param.data.shape)
@@ -200,15 +193,16 @@ def get_episode_accuracy(distance, target_ids):
     acc = num_correct.item() / target_ids.shape[0] # jank but the math works out
     return acc
 
-def train(model,train_loader,dev_loader,train_out,dev_out,N,args,**params):
+def train(model,train_loader,dev_loader,train_out,dev_out,N,args,params):
     criterion = torch.nn.CrossEntropyLoss(reduction='mean')
-    optimizer = torch.optim.Adadelta(model.parameters(), params.get('lr'))
+    optimizer = torch.optim.Adadelta(model.parameters(), params['lr'])
 
-    averageLoss = []
-    min_loss=-1
-    min_loss_i=-1
+    avg_loss_epoch = []
+    stdev_loss_epoch = []
+    min_loss_i=None
 
     for epoch in range(args.epochs):
+        loss_epoch = []
         for update,(query_set, support_set, target_ids, _) in enumerate(train_loader):
             # Training
             _,distance = distanceFromPrototypes(model, query_set, support_set, args.support, args.query)
@@ -216,179 +210,184 @@ def train(model,train_loader,dev_loader,train_out,dev_out,N,args,**params):
             if (torch.cuda.is_available()):
                 target_ids = target_ids.cuda()
             loss = criterion(distance, target_ids)
-            averageLoss.append(loss.item())
+            loss_epoch.append(loss.item())
 
             optimizer.zero_grad() # reset the gradient valuedict_out.csvs
             loss.backward()       # compute the gradient values
             optimizer.step()      # apply gradients
 
-            reported_epoch = epoch + (update / N)
-            if min_loss == -1 or loss.item() < min_loss:
-                min_loss = loss.item()
-                min_loss_i = reported_epoch
-
-            # Reporting for train set
-            # if (update % args.train_report_interval) == 0:
-            #     train_out.add_record(get_episode_accuracy(distance, target_ids), loss.item())
-            #     if len(train_out) == args.train_report_freq:
-            #         train_out.write_record_buffer(reported_epoch)
-
-            # Reporting for dev set + optional dev embedding graph
-            # if (update % args.dev_report_freq) == 0:
-            #     dev_embeddings = []
-
-            #     for _,(dev_query_set, dev_support_set, dev_target_ids, dev_target_names) in enumerate(dev_loader):
-            #         dev_embed,dev_distance = distanceFromPrototypes(model, dev_query_set, dev_support_set, args.support, args.query)
-            #         dev_embeddings.append(dev_embed.detach())
-
-            #         if (torch.cuda.is_available()):
-            #             dev_target_ids = dev_target_ids.cuda()
-            #         dev_out.add_record(get_episode_accuracy(dev_distance,dev_target_ids))
-
-            #     dev_out.write_record_buffer(reported_epoch)
-
-            #     if (args.save_embed_graph):
-            #         visualize_embeddings(torch.cat(dev_embeddings), dev_target_names, "%d.%d" % (epoch, update))
-
-        # if ((args.checkpoint_freq > 0) and (epoch % args.checkpoint_freq == 0)):
-        #     out_path = os.path.join(args.out_path, 'checkpoint_%d.pt' % (epoch))
-        #     torch.save(model.state_dict(), out_path)
-        #     print('Saved checkpoint at epoch %d to %s' % (epoch, out_path))
+            reported_epoch = epoch + (update/N)
 
             print(reported_epoch)
+
+        avg=mean(loss_epoch)
+        dev=stdev(loss_epoch)
+        if min_loss_i is None:
+            min_loss_i = 0
+        elif avg < min(avg_loss_epoch):
+            min_loss_i = epoch
+        avg_loss_epoch.append(avg)
+        stdev_loss_epoch.append(dev)
+
         if (epoch == 0):
             # cache during first epoch, then load from every epoch thereafter
             # https://discuss.pytorch.org/t/best-practice-to-cache-the-entire-dataset-during-first-epoch/19608/
             train_loader.dataset.img_loader.setUseCache(True)
             train_loader.dataset.num_workers=8
-            min_loss 
-         #  dev_loader.dataset.img_loader.setUseCache(True)
-         #  dev_loader.dataset.num_workers=8
-    return (mean(averageLoss),stdev(averageLoss),min_loss,min_loss_i)
+    return (avg_loss_epoch[min_loss_i],stdev_loss_epoch[min_loss_i],min_loss_i)
 
-def evaluate_test(model, test_loader, test_out, args):
-    model.eval() # switch to eval mode to disable dropout
-    for i,(query_set,support_set,target_ids,_) in enumerate(test_loader):
-        _,distance = distanceFromPrototypes(model, query_set, support_set, args.support, args.query)
+def blackBoxfcn(args,params):
+    # Get the filter specs from the individually defined jank
+    Filter_specs = get_jank_filter_specs(params)
 
-        if (torch.cuda.is_available()):
-            target_ids = target_ids.cuda()
-        test_out.write_record(i,get_episode_accuracy(distance,target_ids))
+    # Thank goodness they're all square
+    image_shape = (params['image_shape'],params['image_shape'])
 
-# def readTune():
-    # Establish a connection to a SQLite local database
-    # conn = choco.SQLiteConnection("sqlite:///hpTuning.db")
-    # results = conn.results_as_dataframe()
-    # results = pd.melt(results, id_vars=["_loss"], value_name='value', var_name="variable")
+    # Reverse the parsing direction since that's how the file names are defined
+    spec_str = unparse_filter_specs(Filter_specs)
 
-    # sns.lmplot(x="value", y="_loss", data=results, col="variable", col_wrap=3, sharex=False)
-
-    # plt.show()
-
-def blackBoxfcn(args,**params):
     Pre_trained_filters = None
     if params["pretrained"]:
-        Pre_trained_filters = torch.load(make_dicts(params["filter_specs"], args.dict_sample_size, args.input_path, args.dict_sample_space_csv, args.out_path))
-        
+        # Uniqueness of a filter is dependent on what image shape was used
+        pretrained_fname = spec_str + "," + str(image_shape) + ".pt"
+        pretrained_fpath = os.path.join(args.out_path, pretrained_fname)
 
+        # Load filters if present, otherwise make and save them
+        files = [f for f in os.listdir(args.out_path) if os.path.isfile(os.path.join(args.out_path, f))]
+        if not pretrained_fname in files:
+            # I hate this
+            Pre_trained_filters = make_dicts(Filter_specs, image_shape, args.dict_sample_size, 
+                args.input_path, args.dict_sample_space_csv)
+            torch.save(Pre_trained_filters, pretrained_fpath)
+        else:
+            # Load pretrained filters
+            Pre_trained_filters = torch.load(pretrained_fpath)
+
+    # Create dataset/dataloader with the correct specifications
     train_set = PrototypicalDataset(args.input_path, args.train_path, n_support=args.support, 
-            n_query=args.query,image_shape=params.get('image size'),apply_enhancements=params.get('enhancements?'))
-    # dev_set = PrototypicalDataset(args.input_path, args.dev_path, apply_enhancements=params.get('enhancements?'), 
-     #       n_support=args.support, n_query=args.query,image_shape=params.get('image size'))
-
-    # Use the same minibatch size to make each dataset use the same episode size
+            n_query=args.query,image_shape=image_shape,apply_enhancements=params['use_enhancements'])
     train_loader = torch.utils.data.DataLoader(train_set, shuffle=True,
-            drop_last=False, batch_size=params.get('mb'), num_workers=0, pin_memory=True,
+            drop_last=False, batch_size=params['mb'], num_workers=0, pin_memory=True,
             collate_fn=protoCollate)
-    # dev_loader = torch.utils.data.DataLoader(dev_set, shuffle=True,
-    #       drop_last=False, batch_size=params.get('mb'), num_workers=0, pin_memory=True,
-    #       collate_fn=protoCollate)
 
-    Filter_specs = parse_filter_specs(params["filter_specs"])
-    
-    model = ConvNeuralNet(args.embed_dim, args.f1, train_set.image_shape, Filter_specs=Filter_specs, Pre_trained_filters=Pre_trained_filters)
-    if (args.checkpoint_path):
-        state = torch.load(args.checkpoint_path)
-        model.load_state_dict(state)
-        print("Loaded checkpoint %s" % (args.checkpoint_path))
-        # torch saves the device the model was on, so we don't need to re-load to CUDA if it was saved from CUDA
-    else:
-        if (torch.cuda.is_available()):
-            model = model.cuda()
-
-    # train_out = AggregatePerformanceRecord("train",args.out_path,dbg=args.print_reports)
-    # dev_out = AggregatePerformanceRecord("dev",args.out_path,dbg=args.print_reports)
-    # test_out = PerformanceRecord("test",args.out_path,dbg=args.print_reports)
+    model = ConvNeuralNet(args.embed_dim, args.f1, train_set.image_shape, params["use_strength"], Filter_specs=Filter_specs, Pre_trained_filters=Pre_trained_filters)
+    if (torch.cuda.is_available()):
+        model = model.cuda()
 
     N = len(train_loader)
-    # Calculate the loss for the sampled point (minimized)
-    # This would be your training code
-    dev_loader,train_out,dev_out = None,None,None
-    loss = train(model,train_loader,dev_loader,train_out,dev_out,N,args,**params)
-    return loss
 
-def make_specs():
-    return ["32x7x2,64x3x3avg","8x3x2,16x3x2,32x7x4","8x3x2,32x7x2,64x3x3avg",
-            "32x7x2,64x3x3"] 
+    # I'm glad we wrote reusable code so that it's easier to absolutely destroy it in the 0th hour
+    dev_loader,train_out,dev_out = None,None,None
+    loss = train(model,train_loader,dev_loader,train_out,dev_out,N,args,params)
+    return (spec_str,*loss)
+
+def get_jank_filter_specs(params):
+    Filter_specs=[]
+    for i in range(params["L"]):
+        L=str(i+1)
+        c="c"+L
+        k="k"+L
+        m="m"+L
+        t="t"+L
+        Filter_specs.append((params[c],params[k],params[m],params[t]))
+    return Filter_specs
+
+def unparse_filter_specs(filter_specs):
+    specs_str = ""
+    for i,(C,K,M,T) in enumerate(filter_specs):
+        specs_str = specs_str + str(C) + "x" + str(K) + "x" + str(M) + T
+        if i < len(filter_specs)-1:
+            specs_str = specs_str + ","
+    return specs_str
 
 def main(argv):
     # parse arguments
     args = parse_all_args()
 
-    filter_spec_choices=make_specs()
-
     #Chocolate Code
-    # Define the parameters to tune
+    # boy this is super cool wowee
     space = {
-                "lr": choco.uniform(low=.001, high=.1),
+                "lr": choco.log(low=-3, high=-1, base=10),
                 "mb": choco.quantized_uniform(low=5, high=35,step=5),
-                "image size": choco.choice([(100,100),(125,125),(150,150),(175,175),(200,200),(224,224)]),
-                "enhancements?": choco.choice([True,False]),
-                "filter_specs": choco.choice(filter_spec_choices),
-                "pretrained": choco.choice([True,False])
+                "image_shape": choco.quantized_uniform(low=100,high=200,step=10),
+                "use_enhancements": choco.choice([True,False]),
+                "L": {1: {"c1": choco.quantized_log(low=2,high=8,step=1,base=2),
+                          "k1": choco.quantized_uniform(low=3,high=11,step=2),
+                          "m1": choco.quantized_uniform(low=2,high=8,step=1),
+                          "t1": choco.choice(["max","avg"])},
+                      2: {"c1": choco.quantized_log(low=2,high=8,step=1,base=2),
+                          "k1": choco.quantized_uniform(low=3,high=11,step=2),
+                          "m1": choco.quantized_uniform(low=2,high=8,step=1),
+                          "t1": choco.choice(["max","avg"]),
+                          "c2": choco.quantized_log(low=2,high=8,step=1,base=2),
+                          "k2": choco.quantized_uniform(low=3,high=11,step=2),
+                          "m2": choco.quantized_uniform(low=2,high=8,step=1),
+                          "t2": choco.choice(["max","avg"])},
+                      3: {"c1": choco.quantized_log(low=2,high=8,step=1,base=2),
+                          "k1": choco.quantized_uniform(low=3,high=11,step=2),
+                          "m1": choco.quantized_uniform(low=2,high=8,step=1),
+                          "t1": choco.choice(["max","avg"]),
+                          "c2": choco.quantized_log(low=2,high=8,step=1,base=2),
+                          "k2": choco.quantized_uniform(low=3,high=11,step=2),
+                          "m2": choco.quantized_uniform(low=2,high=8,step=1),
+                          "t2": choco.choice(["max","avg"]),
+                          "c3": choco.quantized_log(low=2,high=8,step=1,base=2),
+                          "k3": choco.quantized_uniform(low=3,high=11,step=2),
+                          "m3": choco.quantized_uniform(low=2,high=8,step=1),
+                          "t3": choco.choice(["max","avg"])}
+                    },
+                "pretrained": choco.choice([True,False]),
+                "use_strength": choco.choice([True,False])
             }
 
     # Establish a connection to a SQLite local database
     conn = choco.SQLiteConnection("sqlite:///hpTuning.db")
 
-    out = open(os.path.join(args.out_path, "results.csv"), "w", newline='')
+    # Construct the optimizer
+    sampler = choco.Bayes(conn, space)
 
-    header=list(space)
-    header.extend(["epochs","avg_loss","std_loss","min_loss","min_loss_epoch"])
+    # Sample the next point
+    token, params = sampler.next()
 
-    out_writer = csv.DictWriter(out, fieldnames=header)
-    out_writer.writeheader()
+    try:
+        # Average loss and standard deviation of the loss of the epoch with the lowest average loss
+        filter_specs,epoch_avg_loss,epoch_std_loss,epoch = blackBoxfcn(args,params)
+    except Exception as e:
+        # Record that these parameters caused an error (this has already happened)
+        err_log=open(os.path.join(args.out_path, "failed_params.txt"),"a")
+        err_log.write("error type: " + str(type(e))+"\n")
+        err_log.write("error msg: " + str(e)+"\n")
+        err_log.write("params: " + str(params)+"\n")
+        err_log.write("============================\n")
+        err_log.flush()
+    else:
+        # csv spaghetti since I've never touched a real database in my fucking life
+        shared=["lr","mb","image_shape","use_enhancements","pretrained","use_strength"]
+        non_shared=["filter_specs","best_epoch","epoch_avg_loss","epoch_std_loss"]
+        header = shared + non_shared
 
-    for i in range(20):
-        # Construct the optimizer
-        sampler = choco.Bayes(conn, space)
+        out,out_writer = None,None
+        try:
+            out = open(os.path.join(args.out_path, "results.csv"), "x", newline='')
+            out_writer = csv.DictWriter(out, fieldnames=header)
+            out_writer.writeheader()
+        except FileExistsError:
+            out = open(os.path.join(args.out_path, "results.csv"), "a", newline='')
+            out_writer = csv.DictWriter(out, fieldnames=header)
 
-        # Sample the next point
-        token, params = sampler.next()
-
-        avg_loss,std_loss,min_loss,min_loss_epoch = blackBoxfcn(args,**params)
-        params["epochs"]   = args.epochs
-        params["avg_loss"] = avg_loss      
-        params["std_loss"] = std_loss
-        params["min_loss"] = min_loss
-        params["min_loss_epoch"] = min_loss_epoch
+        row={}
+        for var in list(shared):
+            row[var]=params[var]
+        row["filter_specs"]   = filter_specs
+        row["best_epoch"]     = epoch
+        row["epoch_avg_loss"] = epoch_avg_loss      
+        row["epoch_std_loss"] = epoch_std_loss
         
-        out_writer.writerow(params)
+        out_writer.writerow(row)
         out.flush()
 
         # Add the loss to the database
-        sampler.update(token, avg_loss)
-    
-    # # Get test set performance
-    # test_set = PrototypicalDataset(args.input_path, args.test_path, apply_enhancements=False, n_support=args.support, n_query=args.query)
-    # test_loader = torch.utils.data.DataLoader(test_set, shuffle=True,
-    #         drop_last=False, batch_size=args.mb, num_workers=0, pin_memory=True,
-    #         collate_fn=protoCollate)
-    
-    # # we should make sure this fn works, but we should not run this on the actual test set even once before we are completely done training
-    # # evaluate_test(model, test_loader, test_out, args)
-
-    #readTune()
+        sampler.update(token, epoch_avg_loss)
 
 if __name__ == "__main__":
     main(sys.argv)

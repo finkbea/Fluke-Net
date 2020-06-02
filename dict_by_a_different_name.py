@@ -113,27 +113,13 @@ def prepare_dictionaries (Samples, Filter_specs, Dict_alpha=2, Dict_minibatch_si
         
     return Filters_output
 
-def save_filters(filters, name, save_dir):
-    files = [f for f in os.listdir(save_dir) if os.path.isfile(os.path.join(save_dir, f))]
-    suffix=".pt"
-    i=-1
-    while name+suffix in files:
-        i+=1
-        suffix="_"+str(i)+".pt"
-
-    path = os.path.join(save_dir,name+suffix)
-    torch.save(filters, path)
-    return path
-
-def make_dicts(filter_specs, Sample_size, Sample_path, Sample_space_csv, save_dir):
-    # Get filter specs
-    Filter_specs = parse_filter_specs(filter_specs)
+def make_dicts(Filter_specs, image_shape, Sample_size, Sample_path, Sample_space_csv):
     sample=[]
     
     # Make the database lose scope in janky way
     if True:
         # Create the sample database
-        sample_set = PrototypicalDataset(Sample_path, Sample_space_csv, apply_enhancements=False, n_support=1, n_query=0)
+        sample_set = PrototypicalDataset(Sample_path, Sample_space_csv, apply_enhancements=False, n_support=1, n_query=0, image_shape=image_shape)
 
         sample_ids=list(range(len(sample_set)))
         shuffle(sample_ids)
@@ -148,10 +134,7 @@ def make_dicts(filter_specs, Sample_size, Sample_path, Sample_space_csv, save_di
 
     # Create the filters from this image sample
     filters = prepare_dictionaries(sample, Filter_specs, Debug_flag=True)
-
-    # Save with a name describing the convolution's structure
-    path = save_filters(filters, filter_specs, save_dir)
-    return path
+    return filters
 
 if __name__ == "__main__":
     main()

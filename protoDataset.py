@@ -115,7 +115,6 @@ class PrototypicalDataset(torch.utils.data.Dataset):
         # Approximately the proportion of images grayscale in the dataset
         transform_list.append(transforms.RandomGrayscale(p=0.2))
         transform_list.append(transforms.RandomHorizontalFlip(p=0.5))
-        transform_list.append(transforms.RandomRotation((-30, 30), resample=False, expand=True, center=None))
 
         if (random.random() > 0.5):
             scale = random.uniform(0.5, 1.0)
