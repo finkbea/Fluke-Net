@@ -12,7 +12,7 @@ import numpy as np
 import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
-from dataset import PrototypicalDataset, protoCollate, ImageLoader
+from kmeansDataset import PrototypicalDataset, protoCollate, ImageLoader
 from strconv2d import StrengthConv2d
 from utils import parse_filter_specs, visualize_embeddings, PerformanceRecord, AggregatePerformanceRecord
 from sklearn.cluster import MiniBatchKMeans
