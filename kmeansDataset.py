@@ -61,9 +61,14 @@ class PrototypicalDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         # Select sample
+        # Select sample
         id = self.classes[index]
-
-        return id
+        img_paths = self.class_dict.getImagePaths(id)
+        shuffle(img_paths)
+        
+        image = self.getImageTensor(img_paths.pop())
+        
+        return image, id
 
     def getImageTensor(self, img_path, aggressive=False):
         abs_path = os.path.join(self.image_dir_path, img_path)
