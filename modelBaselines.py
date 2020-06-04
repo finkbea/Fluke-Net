@@ -18,6 +18,7 @@ from utils import parse_filter_specs, visualize_embeddings, PerformanceRecord, A
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.metrics import silhouette_score
 
+#as of right now this function isn't used (it was replaced with lines 31 and 32)
 def dataLoaderToNumpy(data):
     for i in enumerate(data):
         #i = i.numpy()
@@ -27,16 +28,13 @@ def dataLoaderToNumpy(data):
 
     #runs kmeans on our dataset, the number of clusters is equal to the number of classes
 def kMeans(train_set, dev_set, train_out, dev_out, mb):
-    
-    n_classes = len(np.unique(dev_out))
-    #train_set2 = dataLoaderToNumpy(train_set)
-    #dev_set2 =dataLoaderToNumpy(dev_set) 
+    n_classes = len(np.unique(dev_out)) 
     train_set2 = next(iter(train_set))[0].numpy()
     train_set2 = train_set2.reshape(len(train_set2), -1)
     train_set2 = train_set2.transpose()
     dev_set2 = next(iter(dev_set))[0].numpy()
     dev_set2 = dev_set2.reshape(len(dev_set2), -1)
-    dev_set2 = dev_set2.transpose()
+    #dev_set2 = dev_set2.transpose()
     
     kmeans = MiniBatchKMeans(n_clusters=n_classes, batch_size=mb)
     kmeans.fit(train_set2, train_out)
@@ -45,10 +43,11 @@ def kMeans(train_set, dev_set, train_out, dev_out, mb):
     classLabels = np.random.rand(len(kmeans.labels_))
     f = open('modelBaselineOutput.txt', 'w')
     for i in range(len(kmeans.labels_)):
-        classLabels[i]=referance_labels[kmeans.labels_[i]]
+        classLabels[i]=classLabels[kmeans.labels_[i]]
 
     for i in enumerate(dev_set2):
-        prediction = kmeans.predict(i)
+        temp = np.asarray(i)
+        prediction = kmeans.predict(temp)
         print(prediction,':',classLabels[[prediction]], file = f)
 
     '''    
@@ -69,14 +68,17 @@ def kMeans(train_set, dev_set, train_out, dev_out, mb):
 
     #creates dictionary of clusters for each label
 def retrieveInfo(cluster_labels, dev_set):
-    referanceLabels = {}
+    temp = dev_set[:1]
+    temp = temp.transpose()
+    temp = temp.flatten()
+    temp = temp.astype(np.int)
+    referenceLabels = {}
     for i in range(len(np.unique(cluster_labels))):
         index = np.where(cluster_labels == i,1,0)
-        print(np.shape(dev_set))
-        num = np.bincount(dev_set[index == 1]).argmax()
+        num = np.bincount(temp[index == 1]).argmax()
         referenceLabels[i] = num
 
-    return refereanceLabels
+    return referenceLabels
     
     #finds the optimal number of clusters for the best prediction for our dataset, may be unneccessary
     #because our optimal number of clusters should be our number of classes
