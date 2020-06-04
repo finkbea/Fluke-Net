@@ -28,6 +28,7 @@ def dataLoaderToNumpy(data):
 
     #runs kmeans on our dataset, the number of clusters is equal to the number of classes
 def kMeans(train_set, dev_set, train_out, dev_out, mb):
+    #converts our training and dev sets to numpy arrays of len n_samples and n_features to pass into kmeans
     n_classes = len(np.unique(dev_out)) 
     train_set2 = next(iter(train_set))[0].numpy()
     train_set2 = train_set2.reshape(len(train_set2), -1)
@@ -39,28 +40,27 @@ def kMeans(train_set, dev_set, train_out, dev_out, mb):
     kmeans = MiniBatchKMeans(n_clusters=n_classes, batch_size=mb)
     kmeans.fit(train_set2, train_out)
     kmeans.labels_
+    #creates a dictionary of clusters for each label
     labelDict = retrieveInfo(kmeans.labels_, dev_set2)
     classLabels = np.random.rand(len(kmeans.labels_))
+    #opens output file
     f = open('modelBaselineOutput.txt', 'w')
     for i in range(len(kmeans.labels_)):
         classLabels[i]=classLabels[kmeans.labels_[i]]
 
     for i in enumerate(dev_set2):
-        temp = np.asarray(i)
-        prediction = kmeans.predict(temp)
-        print(prediction,':',classLabels[[prediction]], file = f)
+        #temp = np.asarray(i)
+        #np.delete(temp, 0)
+        #temp = temp.reshape(len(temp),-1)
+        #temp = np.asarray(i)
+        #print(np.shape(temp))
+        #print(temp)
+        #prediction = kmeans.predict(temp)
+        #print(prediction,':',classLabels[[prediction]], file = f)
 
-    '''    
-    #makes predictions for images in the train_set
-    for i in range(len(train_set)):
-        #y = train_set[i].numpy()
-        prediction = kmeans.predict(train_set[i])
-        print(prediction,':',numLabels[[prediction]], file = f) #want to print to file f but running into problems
-        #TODO
-    '''
     f.close()
     #outputting results to file
-    plt.scatter(data[:, 0], data[:, -1])
+    plt.scatter(dev_set2[:, 0], dev_set2[:, -1])
     plt.scatter(kmeans.cluster_centers_[:,0], kmeans.cluster_centers_[:,1], c='red', marker='x')
     plt.title('Kmeans cluster')
     #plt.show()
