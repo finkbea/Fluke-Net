@@ -12,57 +12,68 @@ import numpy as np
 import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
-from kmeansDataset import PrototypicalDataset, protoCollate, ImageLoader
+from kmeansDataset import PrototypicalDataset, ImageLoader
 from strconv2d import StrengthConv2d
 from utils import parse_filter_specs, visualize_embeddings, PerformanceRecord, AggregatePerformanceRecord
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.metrics import silhouette_score
 
 def dataLoaderToNumpy(data):
-    print('hello')
     for i in enumerate(data):
-        print('x')
-        i = i.numpy()
-        print(i)
-    return data
+        #i = i.numpy()
+        i = np.asarray(i)
+        
+    return np.asarray(data)
 
     #runs kmeans on our dataset, the number of clusters is equal to the number of classes
 def kMeans(train_set, dev_set, train_out, dev_out, mb):
-    n_classes = len(np.unique(dev_out))
-    train_set = dataLoaderToNumpy(train_set)
-    dev_set =dataLoaderToNumpy(dev_set)
-    train_out = dataLoaderToNumpy(train_out)
-    dev_out = dataLoaderToNumpy(dev_out)
     
-    kmeans = MiniBatchKMeans(n_clusters=n_classes, batch_size=mb).fit(train_set, train_out)
+    n_classes = len(np.unique(dev_out))
+    #train_set2 = dataLoaderToNumpy(train_set)
+    #dev_set2 =dataLoaderToNumpy(dev_set) 
+    train_set2 = next(iter(train_set))[0].numpy()
+    train_set2 = train_set2.reshape(len(train_set2), -1)
+    train_set2 = train_set2.transpose()
+    dev_set2 = next(iter(dev_set))[0].numpy()
+    dev_set2 = dev_set2.reshape(len(dev_set2), -1)
+    dev_set2 = dev_set2.transpose()
+    
+    kmeans = MiniBatchKMeans(n_clusters=n_classes, batch_size=mb)
+    kmeans.fit(train_set2, train_out)
     kmeans.labels_
-    labelDict = retreieveInfo(kmeans.labels_, dev_set)
-    numLabels = np.random.rand(len(kmeans.labels_))
+    labelDict = retrieveInfo(kmeans.labels_, dev_set2)
+    classLabels = np.random.rand(len(kmeans.labels_))
     f = open('modelBaselineOutput.txt', 'w')
     for i in range(len(kmeans.labels_)):
-        numLabels[i]=referance_labels[kmeans.labels_[i]]
+        classLabels[i]=referance_labels[kmeans.labels_[i]]
 
+    for i in enumerate(dev_set2):
+        prediction = kmeans.predict(i)
+        print(prediction,':',classLabels[[prediction]], file = f)
+
+    '''    
+    #makes predictions for images in the train_set
     for i in range(len(train_set)):
         #y = train_set[i].numpy()
         prediction = kmeans.predict(train_set[i])
-        print(prediction,':',numLabels[[prediction]]) #want to print to file f but running into problems
+        print(prediction,':',numLabels[[prediction]], file = f) #want to print to file f but running into problems
         #TODO
-
-    
+    '''
     f.close()
     #outputting results to file
     plt.scatter(data[:, 0], data[:, -1])
     plt.scatter(kmeans.cluster_centers_[:,0], kmeans.cluster_centers_[:,1], c='red', marker='x')
     plt.title('Kmeans cluster')
-    plt.show()
+    #plt.show()
     plt.savefig('table.jpg')
 
     #creates dictionary of clusters for each label
 def retrieveInfo(cluster_labels, dev_set):
-
     referanceLabels = {}
-    for i in range(len(np.unique(kmeans.labels_))):
-        num = np.bincount(y_train[index==1]).argmax()
+    for i in range(len(np.unique(cluster_labels))):
+        index = np.where(cluster_labels == i,1,0)
+        print(np.shape(dev_set))
+        num = np.bincount(dev_set[index == 1]).argmax()
         referenceLabels[i] = num
 
     return refereanceLabels
@@ -105,11 +116,10 @@ def main(argv):
 
     # Use the same minibatch size to make each dataset use the same episode size
     train_loader = torch.utils.data.DataLoader(train_set, shuffle=True,
-            drop_last=False, batch_size=args.mb, num_workers=0, pin_memory=True,
-            collate_fn=protoCollate)
+            drop_last=False, batch_size=args.mb, num_workers=0, pin_memory=True
+            )
     dev_loader = torch.utils.data.DataLoader(dev_set, shuffle=True,
-            drop_last=False, batch_size=args.mb, num_workers=0, pin_memory=True,
-            collate_fn=protoCollate)
+            drop_last=False, batch_size=args.mb, num_workers=0, pin_memory=True)
 
     train_out = AggregatePerformanceRecord("train",args.out_path,dbg=args.print_reports)
     dev_out = AggregatePerformanceRecord("dev",args.out_path,dbg=args.print_reports)

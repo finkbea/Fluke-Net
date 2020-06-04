@@ -14,7 +14,7 @@ from random import shuffle
 from PIL import Image
 from torchvision import transforms
 
-def protoCollate(batch):
+'''def protoCollate(batch):
     queries = []
     supports = []
     target_ids = []
@@ -29,7 +29,7 @@ def protoCollate(batch):
     target_ids = torch.tensor(target_ids)
 
     return (torch.stack(queries), torch.stack(supports), target_ids, target_names)
-
+'''
 class PrototypicalDataset(torch.utils.data.Dataset):
 
     def __init__(self, image_dir_path: str, labels_file_path: str, apply_enhancements=True,
